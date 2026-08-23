@@ -19,6 +19,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type ConfidenceRound,
   type DivergenceRound,
   type QuantizationTradeoffAction,
@@ -31,6 +32,7 @@ import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Readout, Tag, cx, formatNumber } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -63,7 +65,9 @@ export function QuantizationCanvas({ game, level, onScore, onSubmit }: GameCompo
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board state={state} dispatch={dispatch} setState={setState} onScore={onScore} onSubmit={onSubmit} />
+      )}
     </ModelGate>
   );
 }
@@ -71,11 +75,14 @@ export function QuantizationCanvas({ game, level, onScore, onSubmit }: GameCompo
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: QuantizationTradeoffState;
   dispatch: (action: QuantizationTradeoffAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: QuantizationTradeoffState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -92,6 +99,23 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. Pure here: both precisions were already run during
+  // `prepare()`, so every answer is read back out of the measurement the board
+  // is already showing rather than from anything new.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      // `solve()` returns the state untouched when it has nothing to answer
+      // from — a measurement that failed to prepare, a set with no genuinely
+      // working candidate. Submitting that would record a failed attempt the
+      // player never made, so do nothing instead.
+      if (solved === state) return;
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));

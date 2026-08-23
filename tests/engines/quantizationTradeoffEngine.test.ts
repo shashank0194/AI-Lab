@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type QuantizationTradeoffConfig,
 } from '@/engines/quantizationTradeoffEngine';
 import type { CorpusDep, PrecisionModelDep, PrecisionRunResult } from '@/engines/deps';
@@ -339,5 +340,97 @@ describe('quantizationTradeoffEngine — submit', () => {
     let state = initState(config, outputRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('quantizationTradeoffEngine — solve (the worked solution\'s autofill)', () => {
+  it('answers every divergence round from the two precisions\' real top tokens', async () => {
+    const config: QuantizationTradeoffConfig = { mode: 'compare-outputs', prompts: ['prompt A', 'prompt B'], topK: 3 };
+    const reference = makeFakePrecisionModel({
+      label: 'fp32',
+      sizeMB: 500,
+      runs: { 'prompt A': { token: ' Paris', prob: 0.9 }, 'prompt B': { token: ' cold', prob: 0.8 } },
+    });
+    const quantized = makeFakePrecisionModel({
+      label: 'q8',
+      sizeMB: 130,
+      runs: { 'prompt A': { token: ' Paris', prob: 0.7 }, 'prompt B': { token: ' hot', prob: 0.6 } },
+    });
+    const prepared = await prepare(config, { reference, quantized });
+    const solved = solve(initState(config, outputRules, prepared));
+
+    expect(solved.divergenceRounds.map((r) => r.pick)).toEqual([false, true]);
+    const result = evaluate(solved);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('answers the speed predictions from the real measurement, whichever way it went', async () => {
+    const config: QuantizationTradeoffConfig = { mode: 'compare-speed', prompts: ['probe prompt'] };
+    // Deliberately the awkward case: the quantized build is smaller and loads
+    // faster, but its inference is *slower* — so a solution that just answered
+    // "quantized wins everything" would get this wrong.
+    const reference = makeFakePrecisionModel({
+      label: 'fp32',
+      sizeMB: 500,
+      loadMs: 400,
+      runs: { 'probe prompt': { token: ' x', prob: 1, inferenceTimeMs: 20 } },
+    });
+    const quantized = makeFakePrecisionModel({
+      label: 'q8',
+      sizeMB: 130,
+      loadMs: 100,
+      runs: { 'probe prompt': { token: ' x', prob: 1, inferenceTimeMs: 55 } },
+    });
+    const prepared = await prepare(config, { reference, quantized });
+    const solved = solve(initState(config, speedRules, prepared));
+
+    expect(solved.speedPredictions).toEqual({
+      smallerIsQuantized: true,
+      fasterLoadIsQuantized: true,
+      fasterInferenceIsQuantized: false,
+    });
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('leaves the speed predictions alone when nothing was measured', async () => {
+    const config: QuantizationTradeoffConfig = { mode: 'compare-speed', prompts: ['probe prompt'] };
+    const state = initState(config, speedRules, { divergenceRounds: [], speedMeasurement: null, confidenceRounds: [] });
+    const solved = solve(state);
+    expect(solved.speedPredictions.smallerIsQuantized).toBeNull();
+    expect(evaluate(solved).value).toBe(0);
+  });
+
+  it('answers every confidence round from the real measured surprisals', async () => {
+    const config: QuantizationTradeoffConfig = {
+      mode: 'compare-confidence',
+      corpus: 'retrieval-facts',
+      factIds: ['reef', 'venus'],
+    };
+    const reference = makeFakePrecisionModel({
+      label: 'fp32',
+      sizeMB: 500,
+      surprisals: {
+        'Context: The reef stretches 2,300 kilometers.\nQuestion: How many kilometers?\nAnswer:| 2,300': [2.6, 0.1, 0.05],
+        'Context: A day on Venus takes 243 Earth days.\nQuestion: How many Earth days?\nAnswer:| 243': [2.1, 0.9, 0.8],
+      },
+    });
+    const quantized = makeFakePrecisionModel({
+      label: 'q8',
+      sizeMB: 130,
+      surprisals: {
+        'Context: The reef stretches 2,300 kilometers.\nQuestion: How many kilometers?\nAnswer:| 2,300': [1.2, 0.3, 0.1],
+        // Here q8 is the more confident one, so the two rounds disagree.
+        'Context: A day on Venus takes 243 Earth days.\nQuestion: How many Earth days?\nAnswer:| 243': [0.4, 0.05, 0.02],
+      },
+    });
+    const prepared = await prepare(config, { corpus: fakeCorpus, reference, quantized });
+    const solved = solve(initState(config, confidenceRules, prepared));
+
+    const picks = solved.confidenceRounds.map((r) => r.pick);
+    expect(new Set(picks)).toEqual(new Set(['reference', 'quantized']));
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
   });
 });

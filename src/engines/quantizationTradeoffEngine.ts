@@ -284,6 +284,60 @@ export function applyAction(
   }
 }
 
+/**
+ * The worked solution's autofill.
+ *
+ * Pure: every answer this chapter scores was already measured during
+ * `prepare()`, by running both precisions of the real model. Whether the two
+ * top tokens diverge, which build is smaller, which loads faster, which is
+ * more confident about a fact — all of it is read back out of the same
+ * measurement the board is showing the player, never from a stored key.
+ */
+export function solve(state: QuantizationTradeoffState): QuantizationTradeoffState {
+  switch (state.mode) {
+    case 'compare-outputs': {
+      let next = state;
+      state.divergenceRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'PICK_DIVERGENCE', roundIndex, guess: round.diverges });
+      });
+      return next;
+    }
+
+    case 'compare-speed': {
+      const m = state.speedMeasurement;
+      if (!m) return state;
+      let next = applyAction(state, {
+        type: 'PREDICT_SPEED',
+        field: 'smallerIsQuantized',
+        value: m.quantizedSizeMB < m.referenceSizeMB,
+      });
+      next = applyAction(next, {
+        type: 'PREDICT_SPEED',
+        field: 'fasterLoadIsQuantized',
+        value: m.quantizedLoadMs < m.referenceLoadMs,
+      });
+      next = applyAction(next, {
+        type: 'PREDICT_SPEED',
+        field: 'fasterInferenceIsQuantized',
+        value: m.quantizedInferenceMs < m.referenceInferenceMs,
+      });
+      return next;
+    }
+
+    case 'compare-confidence': {
+      let next = state;
+      state.confidenceRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'PICK_CONFIDENCE',
+          roundIndex,
+          pick: round.referenceMoreConfident ? 'reference' : 'quantized',
+        });
+      });
+      return next;
+    }
+  }
+}
+
 export function evaluate(state: QuantizationTradeoffState): ScoreResult {
   switch (state.mode) {
     case 'compare-outputs': {

@@ -54,7 +54,30 @@
         "Try the prompts where the model has to make a genuine judgment call. A factual completion it's already very confident about — a well-known capital, a chemical symbol — rarely flips between precisions. A completion it's already unsure of is where rounding the weights can tip it to something else.",
         "Confidence is the real tell: in the actual fp32 run, every prompt that goes on to flip under q8 starts from a top-token probability under 0.4. Every prompt that stays identical starts at 0.4 or higher. A close call is fragile; a landslide isn't.",
         "Checked directly against the real q8 and fp32 forward passes: 'The sky is the color' (of → you), 'The first president of the United States was' (John → elected), 'Roses are red, violets are' (white → blue), and 'A group of lions is called a' (pride → lion) all genuinely diverge. 'The capital of France is', 'The opposite of hot is', 'My favorite color is', and 'The chemical symbol for gold is' do not — both precisions land on the identical top token."
-      ]
+      ],
+      "solution": {
+        "problem": "Eight everyday prompts, already run through the real model at full fp32 precision — you can see its actual top token and how confident it was. Your job is to predict, for each one, whether the same model quantized to q8 lands on a genuinely different top token. The q8 run has already happened too; submitting reveals it.",
+        "steps": [
+          {
+            "title": "Understand what quantization actually does",
+            "body": "q8 stores each weight in 8 bits instead of 32. Nothing about the architecture or the training changes — every weight is simply rounded to a coarser grid. The forward pass then computes on slightly wrong numbers, which shifts every logit a little. Whether that shift changes the *argmax* is the entire question here."
+          },
+          {
+            "title": "Ask how much margin the top token has",
+            "body": "A small perturbation only flips the ranking when the top two tokens were close to begin with. So the question is not 'how hard is this prompt' but 'how big is the gap'. The board already gives you the fp32 top-token probability, which is a direct read on that margin."
+          },
+          {
+            "title": "Use the threshold the real runs show",
+            "body": "Measured across all eight prompts: every prompt whose fp32 top-token probability is under 0.4 flips under q8, and every prompt at 0.4 or above does not. That is a clean split on this set — not a law of nature, but a very legible demonstration that fragility tracks margin rather than difficulty."
+          },
+          {
+            "title": "Read the four that flip",
+            "body": "'The sky is the color' (of → you), 'The first president of the United States was' (John → elected), 'Roses are red, violets are' (white → blue), and 'A group of lions is called a' (pride → lion). Note that these are not obscure prompts — the model was simply undecided on each. The four that hold are the ones it was already sure of: the capital of France, the opposite of hot, a favourite colour, the chemical symbol for gold."
+          }
+        ],
+        "answer": "Mark those four as diverging and the other four as identical — 8 of 8, three stars. Autofill reads the answer straight out of the two real forward passes this level already ran on your device, so if your q8 run diverged somewhere slightly different, it follows your run rather than this text.",
+        "takeaway": "Quantization does not degrade a model uniformly; it degrades the decisions that were close. That is why a quantized model can score the same on a benchmark of confident answers and still behave noticeably differently on the ambiguous inputs real users send it — and why evaluating quantization on easy cases tells you almost nothing."
+      }
     },
     {
       "id": "8-1-l2",
@@ -81,7 +104,26 @@
         "Two of these three have an obvious lever: quantization's whole job is shrinking the file that stores the weights, and a smaller file has less to move over the network.",
         "The third question — which precision runs a single already-loaded forward pass faster — is a genuinely open one at this model's tiny size. Dequantizing weights back to float during the pass has its own real cost, and a 135M-parameter model is small enough for that cost to compete with whatever quantization saves.",
         "Checked directly: q8's real file is about a quarter the size of fp32's (roughly 137MB vs 540MB), so it is always the smaller, and — over a real network fetch — the faster-loading of the two. Per-token inference speed does not follow the same pattern in repeated real measurements; there is no safe universal answer for that one, only your own run's real numbers."
-      ]
+      ],
+      "solution": {
+        "problem": "Both precisions of the real model are already on your machine, and this level has already timed them. Before it shows you the numbers, you commit to three predictions: which build is smaller on disk, which loaded faster, and which runs a single forward pass faster. Three stars needs all three right.",
+        "steps": [
+          {
+            "title": "Take the two easy ones first",
+            "body": "Size is what quantization is for: 8 bits per weight instead of 32 is roughly a quarter of the bytes. Measured here, q8's real file is about 137MB against fp32's roughly 540MB. Load time over a real network fetch follows the bytes — a quarter of the download is a quarter of the wait. Both of those are safe answers."
+          },
+          {
+            "title": "Do not assume the third one follows",
+            "body": "Inference speed is a genuinely different question, and the intuition that 'smaller means faster' does not transfer. The weights have to be dequantized back to float during the pass, and at 135M parameters that unpacking cost is large relative to whatever the smaller memory traffic saves. There is no universal answer, which is why this level measures your own machine rather than asserting one."
+          },
+          {
+            "title": "Answer from the measurement, not from the story",
+            "body": "The level ran a real forward pass on both builds on your device, with your browser's execution provider. Whatever it measured is the answer — read the two inference numbers and pick the smaller one. On a different backend, a different browser, or a machine with different memory bandwidth, that answer can legitimately come out the other way."
+          }
+        ],
+        "answer": "Quantized is smaller, and quantized loaded faster. For inference speed, answer with whichever number your own run actually measured — that is the only honest answer here. Autofill does exactly that: it compares the three real measurements this level took on your device and answers each from the measured pair, so all three are right by construction rather than by assumption.",
+        "takeaway": "Quantization buys memory and download size reliably. It buys latency only sometimes, and at small model sizes it can cost you latency — the dequantization overhead is real work. 'Quantize it to make it faster' is a hypothesis to measure on your target hardware, not a rule."
+      }
     },
     {
       "id": "8-1-l3",
@@ -109,7 +151,26 @@
         "Don't trust the model's very first response token — nearly every answer starts the same generic way regardless of which precision produced it, or what the real fact even is. The real signal is in what happens once it actually commits to the digits.",
         "Once you isolate the token that is actually the number (not the formatting around it), one precision is consistently more certain of the correct digits than the other across this whole fact set — worth checking whether that pattern really holds before assuming it's random.",
         "Checked directly across all 8 real facts, teacher-forced against each one's true numeric answer: fp32 shows lower real surprisal (more confidence) on the actual digits than q8 in all 8 of 8 cases. The direction never flips in this measured set — even though a naive first-token confidence check shows no consistent pattern at all, which is exactly why the first hint says to ignore it."
-      ]
+      ],
+      "solution": {
+        "problem": "Eight real factual questions, answered by both precisions, with the true answer teacher-forced so that each precision's real surprisal on the correct digits can be measured. Both usually get the number right — the question is which one is more *certain* of it. For each fact, predict which precision is genuinely more confident.",
+        "steps": [
+          {
+            "title": "Know what is actually being measured",
+            "body": "Surprisal is −log₂ of the probability the model assigned to the token it should have produced, so lower means more confident. Crucially this is measured on the true answer's own tokens rather than on whatever the model chose to say — that is what 'teacher-forced' means, and it is why both precisions can be scored on the same footing even when both are correct."
+          },
+          {
+            "title": "Ignore the first token",
+            "body": "Nearly every answer opens the same generic way regardless of precision or fact, so the first token's surprisal is dominated by formatting rather than knowledge. This level's measurement excludes it and averages over the remaining content tokens — the digits. Judging by the first token instead shows no consistent pattern at all, which is exactly the trap the level's first hint is warning about."
+          },
+          {
+            "title": "Look for a direction rather than a coin flip",
+            "body": "Measured across all eight facts, fp32 shows lower surprisal on the correct digits than q8 in 8 of 8 cases. The direction never flips. That consistency is the real finding: rounding the weights did not usually change *what* the model answers here, but it systematically eroded how sure it is of the part that carries the information."
+          }
+        ],
+        "answer": "Pick the reference (fp32) precision for all eight facts — 8 of 8, three stars. Autofill reads each round's measured surprisal pair rather than applying that rule, so on a run where q8 happened to come out more confident about one fact, it answers that fact the other way.",
+        "takeaway": "A quantized model that still answers correctly is not necessarily the same model. Its confidence is lower on the tokens that matter, which propagates into everything built on those probabilities — sampling temperature behaves differently, confidence thresholds move, and reranking or abstention logic tuned on the full-precision model quietly stops being calibrated."
+      }
     }
   ]
 }
