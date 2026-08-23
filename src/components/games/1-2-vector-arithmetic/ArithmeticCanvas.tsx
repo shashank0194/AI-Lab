@@ -231,7 +231,7 @@ function Board({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* ── the instrument: the equation and whatever it is being asked ── */}
-      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3 [&>*]:shrink-0">
         {/* `my-auto` centres a short instrument without clipping a tall one. */}
         <div className="mx-auto my-auto flex w-full max-w-3xl flex-col gap-4">
           <Equation

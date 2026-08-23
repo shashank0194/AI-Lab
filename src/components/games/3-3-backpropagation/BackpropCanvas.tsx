@@ -124,7 +124,7 @@ function Board({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3 [&>*]:shrink-0">
         {state.mode === 'predict-sign' && (
           <SignBoard state={state} dispatch={dispatch} revealed={revealed} pulseKey={pulseKey} />
         )}

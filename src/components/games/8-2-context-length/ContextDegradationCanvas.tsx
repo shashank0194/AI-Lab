@@ -161,7 +161,7 @@ function Board({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3 [&>*]:shrink-0">
         <div className="mx-auto my-auto flex w-full max-w-3xl flex-col gap-4">
           {state.mode === 'needle-haystack' && <LengthBoard state={state} dispatch={dispatch} />}
           {state.mode === 'attention-dilution' && <DilutionBoard state={state} dispatch={dispatch} />}

@@ -122,7 +122,7 @@ function Board({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
+      <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3 [&>*]:shrink-0">
         {state.mode === 'beat-the-model' && <BeatBoard state={state} dispatch={dispatch} revealed={revealed} />}
         {state.mode === 'tune-order' && <TuneOrderBoard state={state} dispatch={dispatch} result={result} />}
         {state.mode === 'sparsity-wall' && <SparsityBoard state={state} dispatch={dispatch} result={result} />}
