@@ -32,8 +32,11 @@ export function ShareButton({
   }, [justShared]);
 
   const handleShare = async (event: React.MouseEvent) => {
-    // Several call sites nest this inside a chapter-node `<Link>` — this
-    // button's own action must win, not a navigation to the chapter.
+    // Kept even though no call site nests this inside a link any more (the
+    // map overlays it beside the node rather than inside it, since nesting an
+    // interactive element inside `<a>`/`<button>` is invalid HTML and broke
+    // hydration). If it is ever placed over a clickable surface again, this
+    // button's own action must still win rather than the surface's.
     event.preventDefault();
     event.stopPropagation();
     const outcome = await shareChapter(buildChapterShareUrl(world, chapterId), chapterTitle);

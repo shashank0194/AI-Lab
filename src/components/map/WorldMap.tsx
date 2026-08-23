@@ -322,7 +322,9 @@ function ChapterNode({
     >
       <div className="flex items-start justify-between gap-2">
         <span className="readout text-[10px] text-muted">{chapter.id}</span>
-        <div className="flex items-center gap-0.5">
+        {/* Room on the right for the share button, which is a sibling of the
+            node's own link rather than a child of it — see below. */}
+        <div className="flex items-center gap-0.5 pr-5">
           {locked ? (
             <Lock size={11} strokeWidth={2} className="text-muted" />
           ) : withSolution ? (
@@ -330,7 +332,6 @@ function ChapterNode({
           ) : completed ? (
             <Check size={11} strokeWidth={2.5} className="text-accent" aria-label={solveNote} />
           ) : null}
-          <ShareButton world={world.world} chapterId={chapter.id} chapterTitle={chapter.title} size={11} />
         </div>
       </div>
 
@@ -362,27 +363,23 @@ function ChapterNode({
   );
 
   // Locked chapters open the warning modal on the map instead of navigating.
-  if (locked) {
-    return (
-      <button
-        type="button"
-        onClick={() =>
-          onLockedClick({
-            chapterTitle: chapter.title,
-            href,
-            missingTitles: state.missing,
-          })
-        }
-        aria-label={`${chapter.title}, locked. Requires ${state.missing.join(', ')}.`}
-        title={`Complete ${state.missing.join(', ')} first`}
-        className="block h-full cursor-pointer text-left"
-      >
-        {body}
-      </button>
-    );
-  }
-
-  return (
+  const node = locked ? (
+    <button
+      type="button"
+      onClick={() =>
+        onLockedClick({
+          chapterTitle: chapter.title,
+          href,
+          missingTitles: state.missing,
+        })
+      }
+      aria-label={`${chapter.title}, locked. Requires ${state.missing.join(', ')}.`}
+      title={`Complete ${state.missing.join(', ')} first`}
+      className="block h-full cursor-pointer text-left"
+    >
+      {body}
+    </button>
+  ) : (
     <Link
       href={href}
       aria-label={
@@ -393,6 +390,22 @@ function ChapterNode({
     >
       {body}
     </Link>
+  );
+
+  // The share button sits *beside* the node's link, never inside it. Both
+  // wrappers are interactive — a `<button>` for a locked chapter, an `<a>` for
+  // an open one — and neither may legally contain another interactive element.
+  // Nesting it produced a real hydration error on every map load ("<button>
+  // cannot contain a nested <button>"), so it is overlaid on the node's own
+  // top-right corner instead — at the same `px-3`/`py-2.5` inset it had as a
+  // child — where the `pr-5` above reserves its space.
+  return (
+    <div className="relative h-full">
+      {node}
+      <div className="absolute right-3 top-2.5">
+        <ShareButton world={world.world} chapterId={chapter.id} chapterTitle={chapter.title} size={11} />
+      </div>
+    </div>
   );
 }
 
