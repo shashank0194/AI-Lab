@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   layerGradientMagnitude,
   type BackpropVisualConfig,
 } from '@/engines/backpropVisualEngine';
@@ -197,5 +198,51 @@ describe('backpropVisualEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('backpropVisualEngine — solve', () => {
+  it('answers every sign round with the gradient’s real direction', () => {
+    const solved = solve(initState(configFor(0), rulesFor(0)));
+    for (const round of solved.signRounds) expect(round.answer).toBe(round.trueDirection);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('orders each round by real gradient magnitude, largest first', () => {
+    const solved = solve(initState(configFor(1), rulesFor(1)));
+    for (const round of solved.rankRounds) {
+      const magnitudes = round.ordering.map((index) => Math.abs(round.edges[index]!.value));
+      for (let i = 1; i < magnitudes.length; i++) {
+        expect(magnitudes[i - 1]!).toBeGreaterThanOrEqual(magnitudes[i]!);
+      }
+    }
+    expect(evaluate(solved).value).toBeCloseTo(1, 6);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('replaces the sigmoid stack with an activation gradient survives', () => {
+    const config = configFor(2);
+    const base = initState(config, rulesFor(2));
+    const solved = solve(base);
+
+    // Five sigmoid layers pass back less than a thousandth of the output
+    // layer's gradient.
+    expect(evaluate(base).value).toBeLessThan(0.01);
+    expect(evaluate(base).passed).toBe(false);
+    expect(solved.activation).not.toBe('sigmoid');
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('prefers gradient that arrives at the scale it left, not the largest ratio', () => {
+    // tanh scores highest on this level's one-sided metric by making the
+    // first-layer gradient ~6x the output layer's — exploding, not healthy.
+    const config = configFor(2);
+    const base = initState(config, rulesFor(2));
+    const tanh = applyAction(base, { type: 'SET_ACTIVATION', value: 'tanh' });
+    const solved = solve(base);
+
+    expect(evaluate(tanh).value).toBeGreaterThan(evaluate(solved).value);
+    expect(evaluate(solved).value).toBeGreaterThan(0.3);
+    expect(evaluate(solved).value).toBeLessThan(1);
   });
 });

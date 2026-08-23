@@ -19,6 +19,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   layerGradientMagnitude,
   type BackpropVisualAction,
   type BackpropVisualConfig,
@@ -27,6 +28,7 @@ import {
 import type { Activation, EdgeGradient } from '@/models/tinyNetTrainer';
 import { Button, Meter, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import { usePointerDrag } from '../usePointerDrag';
 import { useDragReorder } from '../useDragReorder';
 import type { GameComponentProps } from '../registry';
@@ -62,17 +64,28 @@ export function BackpropCanvas({ level, onScore, onSubmit }: GameComponentProps)
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: BackpropVisualState;
   dispatch: (action: BackpropVisualAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: BackpropVisualState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -89,6 +102,17 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the real gradient's sign and ordering, or the
+  // activation that measurably gets gradient back to the first layer.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const isQuiz = state.mode === 'predict-sign' || state.mode === 'rank-magnitude';
 

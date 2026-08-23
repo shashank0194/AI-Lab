@@ -51,7 +51,30 @@
         "The update rule is w ← w − lr·g. Only the *sign* of the gradient decides which way the weight moves — you never need its size for this question.",
         "Subtracting a negative number pushes the weight up, so a negative gradient means the weight increases. Subtracting a positive number pushes it down, so a positive gradient means it decreases. That rule holds for every edge, regardless of layer.",
         "Checked against this exact run (seed 13): the layer-2 edge from unit 3 to unit 1 carries a real gradient of −0.0274 — negative, so it increases. Apply the same sign check to whichever edge is highlighted."
-      ]
+      ],
+      "solution": {
+        "problem": "A real network, warmed up for 30 epochs on the circles data, is asked for a real backward pass. Six weights are picked out and you say which way each one moves — increase or decrease — when gradient descent takes its step. The answer is the sign of the actual gradient, computed by the network's own backward pass, not a stored key.",
+        "steps": [
+          {
+            "title": "Get the sign convention right first",
+            "body": "The gradient points in the direction that *increases* loss, and the update subtracts it. So a weight whose gradient is positive gets smaller, and a weight whose gradient is negative gets larger. If you read the gradient's sign and answer with it directly, you will be wrong every time — that inversion is the single most common mistake here."
+          },
+          {
+            "title": "Trace the chain for one edge",
+            "body": "For a weight in the last layer, the gradient is (prediction − target) × the activation flowing into that weight. Two things decide the sign: whether the network is currently over- or under-predicting, and the sign of that incoming activation. With tanh hidden units, activations are freely positive or negative, which is why the answer is not the same for every edge in a layer."
+          },
+          {
+            "title": "Use the visualisation as the evidence",
+            "body": "The board draws each edge's real gradient. You do not have to derive anything from scratch — you have to read the sign off the picture and then apply the inversion from step one. That combination is the level."
+          },
+          {
+            "title": "Know what the six really are",
+            "body": "On this level's seed the six rounds come out as increase, decrease, decrease, increase, decrease, decrease. Four of the six weights get smaller, which is the ordinary picture partway through training: most weights are being reined in while a few keep growing."
+          }
+        ],
+        "answer": "In order: increase, decrease, decrease, increase, decrease, decrease. Autofill answers each round with the direction the real backward pass implies, for 6/6 and three stars.",
+        "takeaway": "Backpropagation is not mysterious once you see it as one derivative per edge, chained. Every weight gets told the same thing — which way to move to make the loss smaller — and the whole of training is that message, repeated a few million times."
+      }
     },
     {
       "id": "3-3-l2",
@@ -86,7 +109,30 @@
         "Ignore the sign entirely — this is ranked by |gradient|, magnitude only. Compare how strongly the backward pass weighted each edge.",
         "There's no shortcut like \"later layers always carry the biggest gradient\": the real magnitude is a product of downstream weights and activation derivatives multiplied together along the path back to that edge, and which edge wins can flip between rounds. Read the actual sizes rather than guessing from position in the network.",
         "Checked against this exact run (seed 13), round 1's five edges ranked largest |gradient| first: layer 3 unit 1→1 (0.0433), layer 1 unit 2→2 (0.0086), layer 1 unit 2→4 (0.0038), layer 2 unit 1→4 (0.0033), layer 2 unit 2→2 (0.0003)."
-      ]
+      ],
+      "solution": {
+        "problem": "Same real backward pass, deeper network, and now magnitude rather than sign. Each round shows five edges and you rank them by how large their gradients are. The score is a Spearman correlation against the real ordering, averaged over four rounds, so the shape of your ranking matters more than any individual placement.",
+        "steps": [
+          {
+            "title": "Expect the range to be enormous",
+            "body": "Measured on this level's rounds, the five gradients within a single round span two orders of magnitude — 4.3 × 10⁻² down to 2.6 × 10⁻⁴ in the first round. This is not a set of similar numbers to be split carefully; it is a few large ones and a few near-zero ones."
+          },
+          {
+            "title": "Know what makes a gradient large",
+            "body": "An edge's gradient is the error signal arriving at its output unit multiplied by the activation entering it. So the big ones are edges carrying a strong activation into a unit that is contributing to a large error, and the tiny ones are edges whose input is near zero or whose downstream unit is already nearly right. Position in the network matters too: later layers see the error signal before it has been attenuated by the trip back."
+          },
+          {
+            "title": "Rank by size, not by importance",
+            "body": "The metric compares your ordering to the real magnitudes and nothing else. Put the largest first and work down. Getting the two extremes in the right places recovers most of the correlation even if the middle three are shuffled, because Spearman is forgiving of adjacent swaps."
+          },
+          {
+            "title": "Notice why this matters",
+            "body": "A gradient two orders of magnitude smaller than its neighbour is a weight that will barely move this step. Aggregate that across a network and you have the reason some parts of a model train quickly while others sit almost still — and the reason adaptive optimisers rescale per-parameter step sizes instead of trusting one global learning rate."
+          }
+        ],
+        "answer": "In each round, order the edges from largest absolute gradient to smallest. Autofill reads the real magnitudes out of the backward pass and sorts each round by them, for a correlation of 1.0 and three stars.",
+        "takeaway": "Gradients are not uniform across a network, and the spread is much wider than intuition suggests. That spread is what optimisers like Adam exist to normalise, and what gradient clipping exists to contain."
+      }
     },
     {
       "id": "3-3-l3",
@@ -121,7 +167,30 @@
         "This stack is five weight layers deep, and sigmoid's own derivative never exceeds 0.25 — every layer the backward pass crosses multiplies the signal by something smaller, so it shrinks fast on the way back. Try a different activation.",
         "A rectifier's derivative is a flat 1 wherever the unit is active, so it doesn't shrink the signal layer over layer the way sigmoid does. Swapping the activation should let far more gradient survive the trip back to the first layer.",
         "Measured directly on this exact net (seed 31): sigmoid gives a first-layer/last-layer ratio of about 0.001, well under the 0.05 floor. Switching to tanh reaches about 6.48, and relu or leakyRelu land around 0.34 — either clears even the 3-star band (0.3)."
-      ]
+      ],
+      "solution": {
+        "problem": "Five sigmoid layers deep. The score is the ratio between the average gradient magnitude in the first weight layer and the last one — how much of the learning signal survives the trip back. It starts at 0.00095, which means 99.9% of the signal is gone by the time it reaches the first layer.",
+        "steps": [
+          {
+            "title": "See the size of the collapse",
+            "body": "Measured on this level: the last layer's average gradient magnitude is 3.5 × 10⁻³ and the first layer's is 3.3 × 10⁻⁶ — a thousand-fold attenuation across four hops. The first layer is receiving almost nothing, so it is effectively frozen while the rest of the network trains."
+          },
+          {
+            "title": "Understand where the factor comes from",
+            "body": "Every layer the gradient passes through multiplies it by that layer's activation derivative. Sigmoid's derivative peaks at 0.25 and is much smaller everywhere else. Four layers of a factor of at most a quarter is at most 1/256, before the weights themselves are taken into account — this is exponential decay in depth, not a tuning problem."
+          },
+          {
+            "title": "Change the derivative, not the depth",
+            "body": "ReLU's derivative is exactly 1 wherever a unit is active, so the gradient passes through unattenuated. Measured, with the identical architecture and warm-up: ReLU takes the ratio to 0.344 and leaky ReLU to 0.338 — from 0.1% of the signal surviving to about a third. Nothing else changed."
+          },
+          {
+            "title": "Watch out for the other direction",
+            "body": "tanh scores highest on this level's metric, at 6.48 — but read what that means: the first-layer gradient is roughly six times *larger* than the output layer's. That is an exploding gradient, the opposite failure, and it happens to score well because the metric only measures one direction. A ratio near 1 is the healthy target, which is why the fill picks ReLU over tanh even though tanh scores higher."
+          }
+        ],
+        "answer": "Switch the activation from sigmoid to ReLU — the ratio goes from 0.00095 to 0.344, three stars. Leaky ReLU is equivalent at 0.338. Autofill measures all four options and keeps ReLU, the one nearest a healthy ratio of 1.",
+        "takeaway": "This one number is why deep learning stalled until about 2011 and why it stopped stalling. Every deep architecture since is partly a story about keeping this ratio near 1 — ReLU, residual connections, careful initialisation and layer normalisation are all answers to the same question."
+      }
     }
   ]
 }

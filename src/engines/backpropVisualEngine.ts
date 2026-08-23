@@ -201,6 +201,92 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this level's own backward pass produces.
+ *
+ * The first two modes read straight out of state: the real gradient's sign and
+ * the real magnitudes, both computed by `TinyNet`'s actual backward pass rather
+ * than stored anywhere. The third has no stored answer at all — it asks which
+ * activation lets gradient survive five layers — so the fill tries each option
+ * the level offers and measures what really reaches the first layer.
+ */
+export function solve(state: BackpropVisualState): BackpropVisualState {
+  switch (state.mode) {
+    case 'predict-sign': {
+      let next = state;
+      state.signRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'ANSWER_SIGN',
+          roundIndex,
+          value: round.trueDirection,
+        });
+      });
+      return next;
+    }
+
+    case 'rank-magnitude': {
+      let next = state;
+      state.rankRounds.forEach((round, roundIndex) => {
+        // Largest magnitude first, which is the order the correlation rewards.
+        const ordering = round.edges
+          .map((edge, index) => ({ index, magnitude: Math.abs(edge.value) }))
+          .sort((a, b) => b.magnitude - a.magnitude)
+          .map((entry) => entry.index);
+        next = applyAction(next, { type: 'SET_ORDER', roundIndex, ordering });
+      });
+      return next;
+    }
+
+    case 'fix-vanishing':
+      return fixVanishing(state);
+  }
+}
+
+/**
+ * The activation that actually gets gradient back to the first layer.
+ *
+ * Measured rather than assumed, and the choice between the ones that work is
+ * deliberate. The metric is one-sided — it rewards a *larger* first-layer
+ * gradient without limit — and on this level tanh scores 6.48, meaning the
+ * gradient is roughly six times bigger by the time it reaches the first layer
+ * than it was at the output. That is exploding, not healthy, and it would score
+ * highest. So among the options that clear the level's top band, the fill keeps
+ * the one whose ratio sits closest to 1: gradient that arrives at the same
+ * scale it left, which is what "not vanishing" is supposed to mean.
+ */
+function fixVanishing(state: BackpropVisualState): BackpropVisualState {
+  const options = state.config.activationOptions ?? [state.activation];
+  const topBand = Math.max(...state.rules.starsRules.map((rule) => rule.threshold));
+  const distanceFromHealthy = (ratio: number) =>
+    ratio > 0 ? Math.abs(Math.log(ratio)) : Infinity;
+
+  let best = state;
+  let bestValue = evaluate(state).value;
+  let bestDistance = distanceFromHealthy(bestValue);
+
+  for (const option of options) {
+    const candidate = applyAction(state, { type: 'SET_ACTIVATION', value: option });
+    const value = evaluate(candidate).value;
+    if (!Number.isFinite(value)) continue;
+
+    const distance = distanceFromHealthy(value);
+    const clears = value >= topBand;
+    const incumbentClears = bestValue >= topBand;
+    const wins = incumbentClears ? clears && distance < bestDistance : clears || value > bestValue;
+
+    if (wins) {
+      best = candidate;
+      bestValue = value;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 /** Mean absolute gradient in one weight layer. */
 export function layerGradientMagnitude(gradients: readonly EdgeGradient[], layer: number): number {
   const values = gradients.filter((g) => g.layer === layer).map((g) => Math.abs(g.value));
