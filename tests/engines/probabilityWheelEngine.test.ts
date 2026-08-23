@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type ProbabilityWheelConfig,
 } from '@/engines/probabilityWheelEngine';
 import type { CausalLMDep } from '@/engines/deps';
@@ -308,5 +309,74 @@ describe('probabilityWheelEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('probabilityWheelEngine — solve', () => {
+  it('picks the model’s own top token in every round', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { causalLM: fakeLM });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+    const result = evaluate(solved);
+
+    for (const round of solved.rounds) {
+      const topIndex = round.probs.indexOf(Math.max(...round.probs));
+      expect(round.pick).toBe(round.tokens[topIndex]);
+    }
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('splits the budget in the model’s own proportions', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { causalLM: fakeLM });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+    const result = evaluate(solved);
+
+    for (const round of solved.rounds) {
+      expect(round.allocation.reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+    }
+    // Whole points, so a hair above zero rather than exactly zero — nowhere
+    // near the 0.1 three-star band.
+    expect(result.value).toBeLessThan(0.01);
+    expect(result.stars).toBe(3);
+  });
+
+  it('estimates each round at its real entropy', async () => {
+    const config = { ...configFor(2), prompts: ['a', 'b', 'c', 'd'] };
+    const prepared = await prepare(config, { causalLM: fakeLM });
+    const solved = solve(initState(config, rulesFor(2), prepared));
+    const result = evaluate(solved);
+
+    for (const round of solved.rounds) {
+      expect(round.entropyEstimate).toBeCloseTo(round.actualEntropyBits, 6);
+    }
+    expect(result.value).toBeCloseTo(0, 6);
+    expect(result.stars).toBe(3);
+  });
+
+  it('scores the worst possible error while the entropy board is still empty', () => {
+    // The level ships with no prompts: the player brings them, and so does the
+    // fill — through the canvas, which is the only side that has the model.
+    const config = configFor(2);
+    const state = initState(config, rulesFor(2), { rounds: [] });
+    expect(solve(state).rounds).toEqual([]);
+    expect(evaluate(state).passed).toBe(false);
+  });
+
+  it('clears the entropy level once the canvas has added its prompts', async () => {
+    const config = configFor(2);
+    let state = initState(config, rulesFor(2), { rounds: [] });
+    const prompts = config.solutionPrompts ?? [];
+    expect(prompts.length).toBe(config.rounds);
+
+    for (const prompt of prompts) {
+      const prepared = await prepare({ ...config, prompts: [prompt] }, { causalLM: fakeLM });
+      state = applyAction(state, { type: 'ADD_ROUND', round: prepared.rounds[0]! });
+    }
+
+    const result = evaluate(solve(state));
+    expect(result.value).toBeCloseTo(0, 6);
+    expect(result.stars).toBe(3);
   });
 });

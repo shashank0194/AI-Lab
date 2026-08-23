@@ -20,6 +20,13 @@ export interface ProbabilityWheelConfig {
   rounds?: number;
   maxEntropyBits?: number;
   allowUserPrompt: boolean;
+  /**
+   * Prompts the worked solution fills an empty `estimate-entropy` board with.
+   * Content, so it lives in the level JSON — running them needs the model, which
+   * only the canvas can reach, so the canvas prepares them and the engine reads
+   * the resulting rounds.
+   */
+  solutionPrompts?: string[];
 }
 
 export interface PreparedRound {
@@ -187,6 +194,65 @@ export function applyAction(
 
     case 'SUBMIT':
       return { ...state, status: 'complete', actionCount: state.actionCount + 1 };
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this level's own forward passes produce.
+ *
+ * Every one of them is already sitting in state — the top token, the real
+ * probabilities, the real entropy — because `prepare` ran the model. What the
+ * fill cannot do is *add* a round: the entropy level starts with no prompts at
+ * all and running one needs the model, so the canvas prepares the level's
+ * `solutionPrompts` and dispatches them before calling this.
+ */
+export function solve(state: ProbabilityWheelState): ProbabilityWheelState {
+  switch (state.mode) {
+    case 'predict-top1': {
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        const topIndex = round.probs.indexOf(Math.max(...round.probs));
+        const token = round.tokens[topIndex];
+        if (token !== undefined) next = applyAction(next, { type: 'PICK', roundIndex, token });
+      });
+      return next;
+    }
+
+    case 'allocate-mass': {
+      // The budget split in the model's own proportions, which is a total
+      // variation distance of zero. Rounded to whole points because that is
+      // what the slider can express; the rounding error is worth thousandths
+      // of a point of TVD, nowhere near a star band.
+      const budget = state.config.budget ?? 100;
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        round.probs.forEach((probability, tokenIndex) => {
+          next = applyAction(next, {
+            type: 'ALLOCATE',
+            roundIndex,
+            tokenIndex,
+            value: Math.round(probability * budget),
+          });
+        });
+      });
+      return next;
+    }
+
+    case 'estimate-entropy': {
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'ESTIMATE_ENTROPY',
+          roundIndex,
+          value: round.actualEntropyBits,
+        });
+      });
+      return next;
+    }
   }
 }
 

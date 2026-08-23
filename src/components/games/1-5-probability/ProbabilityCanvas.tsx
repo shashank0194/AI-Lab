@@ -22,6 +22,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type ProbabilityWheelAction,
   type ProbabilityWheelConfig,
   type ProbabilityWheelState,
@@ -32,6 +33,7 @@ import { tinyCausalLM, preloadCausalLM, CAUSAL_LM_MODEL_ID } from '@/models/tiny
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Readout, Slider, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -68,7 +70,13 @@ export function ProbabilityCanvas({ game, level, onScore, onSubmit }: GameCompon
       load={load}
     >
       {state && (
-        <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
       )}
     </ModelGate>
   );
@@ -77,11 +85,14 @@ export function ProbabilityCanvas({ game, level, onScore, onSubmit }: GameCompon
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: ProbabilityWheelState;
   dispatch: (action: ProbabilityWheelAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: ProbabilityWheelState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -107,6 +118,40 @@ function Board({
   }, [dispatch]);
 
   useRetrySignal(resetRun);
+
+  /**
+   * The solution's autofill.
+   *
+   * The entropy level starts with no rounds at all — the player brings the
+   * prompts — so the fill runs the level's own `solutionPrompts` through the
+   * real model first and adds them as rounds. The other two levels already have
+   * everything they need in state, because `prepare` ran their forward passes.
+   */
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        let next = state;
+        if (state.mode === 'estimate-entropy' && state.rounds.length === 0) {
+          const prompts = (state.config.solutionPrompts ?? []).slice(
+            0,
+            state.config.rounds ?? Infinity
+          );
+          for (const prompt of prompts) {
+            const prepared = await prepare(
+              { ...state.config, prompts: [prompt] },
+              { causalLM: tinyCausalLM }
+            );
+            const round = prepared.rounds[0];
+            if (round) next = applyAction(next, { type: 'ADD_ROUND', round });
+          }
+        }
+        next = solve(next);
+        setState(next);
+        setRevealed(true);
+        onSubmit(evaluate(next));
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

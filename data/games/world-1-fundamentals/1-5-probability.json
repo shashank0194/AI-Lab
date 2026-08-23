@@ -49,7 +49,30 @@
         "Read each prompt as if you had to finish the sentence yourself out loud — the model's top pick is usually the single most natural, unsurprising continuation, not a clever or unusual one.",
         "These three prompts each have one continuation that's overwhelmingly more common than the alternatives in ordinary English text — a well-known fact, a standard unit, a common verb after 'walked'.",
         "The model's real top token for each: 'The capital of France is' → ' Paris'; 'Water boils at one hundred degrees' → ' Celsius'; 'She opened the door and walked' → ' into'."
-      ]
+      ],
+      "solution": {
+        "problem": "Three prompts, and for each one you name the single token the model gives the highest probability to. The distribution comes from a real forward pass through SmolLM2-135M, and the wheel you are looking at is that distribution — the top five tokens, renormalised so the segments sum to one.",
+        "steps": [
+          {
+            "title": "Predict the ordinary continuation, not the interesting one",
+            "body": "The model is not choosing what would be good writing; it is reporting what most often follows this exact sequence in text. For 'The capital of France is' that is ' Paris', holding 49% of the shown mass against 23% for the next candidate, ' the' — a clear win, but not the near-certainty the fact itself would suggest. This is a 135M-parameter model, and it knows the answer without being sure of it."
+          },
+          {
+            "title": "Watch confidence drop when the sentence could continue several ways",
+            "body": "'Water boils at one hundred degrees' gives ' Celsius' at 55%, but the runner-up is a comma at 17% and a full stop at 12% — because the sentence is already grammatical and could simply end. 'She opened the door and walked' gives ' into' at 43%, with ' in' at 25% and ' out' at 20%, all three of which are perfectly natural."
+          },
+          {
+            "title": "Note that the wheel is not the whole distribution",
+            "body": "The percentages on the wheel are renormalised over the five tokens shown, so they sum to one by construction. Across the model's real vocabulary those five hold only part of the mass, and the rest is spread over tens of thousands of tokens with vanishing shares each. The wheel is a magnified view of the top of the distribution, not the whole of it."
+          },
+          {
+            "title": "Answer all three",
+            "body": "Scoring is correct picks over three, so two of three is 0.67 and a one-star pass, and three stars needs all three. All three top tokens here are the boring, most-expected continuation, which is the reliable heuristic for this level."
+          }
+        ],
+        "answer": "' Paris' (49%), ' Celsius' (55%) and ' into' (43%). Autofill picks whichever token the live forward pass ranks first in each round, which on this model is exactly those — 3/3 and three stars.",
+        "takeaway": "A language model is a distribution over next tokens and nothing more; everything else — sampling, chat, agents — is machinery built on top of that one object. Seeing 43/25/20 rather than a single answer is the honest picture of what the model actually knows."
+      }
     },
     {
       "id": "1-5-l2",
@@ -79,10 +102,33 @@
       ],
       "xpReward": 50,
       "hints": [
-        "Don't spread your 100 points evenly — real next-token distributions are lopsided. Put most of your budget on whichever one or two tokens feel most natural, and only a little on the rest.",
-        "For 'the best thing about summer is the', several everyday nouns are all plausible and the model's real distribution is fairly spread across the top few. For 'In order to fix the bug, first', one token (a comma, since the sentence naturally pauses there) dominates far more than the others.",
-        "Roughly: 'summer' prompt — time ~24%, way ~24%, opportunity ~19%, weather ~14%, warm ~11%, sunshine ~8% (fairly flat). 'Fix the bug' prompt — the comma alone is close to 60%, with 'we' a distant second around 20% and the rest small (sharply peaked)."
-      ]
+        "Before you decide how lopsided to be, think about how constrained each prompt is. Both of these open a sentence rather than finishing a fact, so several continuations are equally ordinary — and the score is the distance between your shape and the model's, not a reward for confidence.",
+        "Measured live in the browser, both of these distributions are flat rather than peaked: for 'the best thing about summer is the', the leading token holds about a third and the rest are bunched between 12% and 16%; for 'In order to fix the bug, first', the top six run from 24% down to 10% with the leading two within a point of each other. Spreading your 100 points evenly across six scores about 0.12 and passes — betting 60 on one token scores 0.31 and fails.",
+        "Roughly: 'summer' prompt — sunshine ~33, warmth ~16, weather ~14, endless ~14, fact ~12, time ~12. 'Fix the bug' prompt — find ~24, remove ~23, we ~17, check ~14, write ~11, implement ~10. Those proportions score about 0.01."
+      ],
+      "solution": {
+        "problem": "You have 100 points to spread across the model's top six tokens, and the score is total variation distance between your shape and the model's real one — half the summed gap, so 0 is perfect and 1 is as wrong as possible. Only the shape counts: the points are normalised before comparison, so 10/20/30 and 100/200/300 are the same answer.",
+        "steps": [
+          {
+            "title": "Check the assumption that these distributions are peaked",
+            "body": "The instinct — real distributions are lopsided, so back one token heavily — is worth testing rather than trusting, and on these two prompts it is wrong. Measured live in the browser: 'The best thing about summer is the' gives sunshine 33%, warmth 16%, weather 14%, endless 14%, fact 12%, time 12%. 'In order to fix the bug, first' is flatter still: find 24%, remove 23%, we 17%, check 14%, write 11%, implement 10% — the top two are within a point of each other. Neither prompt has a dominant token."
+          },
+          {
+            "title": "See what backing one token costs",
+            "body": "Putting 60 of your 100 points on the top token and tapering the rest scores 0.31 — a fail, since the pass mark is 0.28. Putting all 100 on the top token scores 0.71. Meanwhile spreading the budget evenly across all six scores 0.12, which is a two-star pass. On prompts this flat, doing nothing clever beats being confidently wrong."
+          },
+          {
+            "title": "Read the prompt for how constrained it is",
+            "body": "Both prompts are open-ended in the same way: an adjective or a plan could follow, and many of each are equally ordinary. Compare that to level 1's 'The capital of France is', where one token holds 70% — a prompt that names a fact constrains the next token, while a prompt that opens a sentence does not. The shape of the distribution is a property of the prompt, not of the model's mood."
+          },
+          {
+            "title": "Aim for the real proportions",
+            "body": "Three stars needs an error under 0.10, which means roughly matching the real curve: about a third on the leading token for the summer prompt and a gentle taper, and a nearly flat spread for the bug prompt. Entering 33/16/14/14/12/12 and 24/23/17/14/11/10 scores about 0.01."
+          }
+        ],
+        "answer": "Allocate roughly in the model's own proportions: sunshine 33, warmth 16, weather 14, endless 14, fact 12, time 12; and find 24, remove 23, we 17, check 14, write 11, implement 10. Autofill splits the budget in exactly the live proportions, whatever they turn out to be on your device, which scores about 0.01 and three stars.",
+        "takeaway": "Calibration is a separate skill from prediction: knowing which token wins is easy, and knowing by how much is what tells you whether the model is confident or guessing. That distinction is the whole basis of World 8's calibration chapter, where a confidently wrong model is the failure mode."
+      }
     },
     {
       "id": "1-5-l3",
@@ -96,7 +142,8 @@
         "topK": 8,
         "rounds": 4,
         "maxEntropyBits": 6,
-        "allowUserPrompt": true
+        "allowUserPrompt": true,
+        "solutionPrompts": ["The meeting starts at", "The capital of France is", "My favourite colour is", "The weather today is"]
       },
       "passCriteria": {
         "metric": "entropyEstimateError",
@@ -113,7 +160,30 @@
         "Entropy measures spread, not correctness: a prompt with one obvious continuation has low entropy (sharp, confident), while a prompt that could naturally go many directions has high entropy (flat, uncertain).",
         "A prompt that finishes a well-known phrase, fact or fixed expression tends to score low (under 2 bits). A prompt that trails off in a way many different words could follow — an adjective, a vague setup, an open-ended question — tends to score higher, closer to the top of the scale.",
         "There's no single number since it depends on your own prompt — but as a calibration anchor, ordinary open-ended prompts on this model tend to land around 1.5–3 bits out of a ceiling near log₂(topK); a genuinely 'obvious next word' prompt scores noticeably lower than that, and a genuinely wide-open one scores noticeably higher."
-      ]
+      ],
+      "solution": {
+        "problem": "Entropy is one number summarising how spread a distribution is: 0 bits means one token is certain, and the ceiling here is log₂(8) = 3 bits, meaning all eight shown tokens are equally likely. You supply four prompts and estimate each one's entropy; the score is your mean absolute error in bits, and any round left unanswered is charged the full 6-bit maximum.",
+        "steps": [
+          {
+            "title": "Calibrate the scale before guessing on it",
+            "body": "The slider runs to 6 bits, but the real ceiling with eight tokens shown is 3 bits, so nothing you can write will land above 3. In practice real prompts occupy a narrow band inside that. Measured live in the browser: 'The meeting starts at' is 0.68 bits, because one token holds 90% of the mass; 'My favourite colour is' is 2.05 (blue 49%, red 24%, then a tail); 'The capital of France is' is 2.16, higher than its confident-looking top token suggests; and 'The weather today is' is 2.85, nearly the maximum, with eight candidates between 7% and 28%."
+          },
+          {
+            "title": "Predict entropy from how constrained the prompt is",
+            "body": "Low entropy means the prompt has already decided the answer: a fact ('the capital of France'), a fixed expression, or a format the model has seen thousands of times ('the meeting starts at' — a time is coming). High entropy means many continuations are equally ordinary: an adjective slot, a vague setup, an opinion. Entropy measures spread, not correctness — a confidently wrong model has low entropy too."
+          },
+          {
+            "title": "Do the error arithmetic",
+            "body": "The score is the mean of four absolute errors. Guessing a flat 2.0 bits for every round would give errors of 1.32, 0.16, 0.05 and 0.85 — a mean of 0.61, which passes at two stars. Three stars needs a mean under 0.45, so at least the low-entropy prompt has to be recognised as low rather than hedged at the middle of the range."
+          },
+          {
+            "title": "Answer every round",
+            "body": "The denominator is the level's round count, not how many you filled in, and a missing round is charged 6 bits. Leaving even one of the four blank adds 1.5 to the mean on its own, which fails the level outright no matter how good the other three are."
+          }
+        ],
+        "answer": "Add four prompts spanning the range and estimate each: 'The meeting starts at' ≈ 0.7 bits, 'The capital of France is' ≈ 2.2, 'My favourite colour is' ≈ 2.1, 'The weather today is' ≈ 2.9. Autofill runs exactly those four prompts through the real model and sets each slider to the entropy that forward pass produced — a mean error of zero and three stars.",
+        "takeaway": "Entropy is the number a decoding strategy is really reacting to. World 4's sampling chapter tunes temperature and top-p, and what those knobs do is reshape exactly this quantity — which is why a prompt at 0.7 bits barely changes when you turn the temperature up, and one at 2.9 bits changes completely."
+      }
     }
   ]
 }
