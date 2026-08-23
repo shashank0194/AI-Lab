@@ -4,6 +4,9 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
+  buildSubsetContext,
+  realExtremeIndex,
   type ContextDegradationConfig,
 } from '@/engines/contextDegradationEngine';
 import type { AttentionDep, AttentionResult, CausalLMDep, CorpusDep, TokenDistribution } from '@/engines/deps';
@@ -283,5 +286,99 @@ describe('contextDegradationEngine — submit', () => {
     let state = initState(config, lengthRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('contextDegradationEngine — solve (the worked solution\'s autofill)', () => {
+  it('answers every haystack length from the real decode measured at that length', async () => {
+    const config: ContextDegradationConfig = {
+      mode: 'needle-haystack',
+      corpus: 'retrieval-facts',
+      factId: 'venus',
+      fillerCorpus: 'austen-sample',
+      fillerWordCounts: [0, 100, 1500],
+      maxTokens: 10,
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: makeLengthSensitiveCausalLM(500) });
+    const solved = solve(initState(config, lengthRules, prepared));
+
+    // Follows the real measurement rather than a "longer always fails" rule.
+    expect(solved.lengthRounds.map((r) => r.guess)).toEqual([true, true, false]);
+    const result = evaluate(solved);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('answers each dilution round with the real extreme of its own attention row', async () => {
+    const config: ContextDegradationConfig = {
+      mode: 'attention-dilution',
+      sentences: ['a b c', 'a b c d'],
+      targets: ['min', 'max'],
+    };
+    const attention: AttentionDep = {
+      async attention(sentence: string) {
+        const tokens = sentence.split(' ');
+        const row = tokens.map((_, i) => (i === tokens.length - 1 ? 0 : tokens.length - i));
+        return makeAttention(tokens, row);
+      },
+    };
+    const prepared = await prepare(config, { attention });
+    const solved = solve(initState(config, dilutionRules, prepared));
+
+    expect(solved.dilutionRounds.map((r) => r.guessIndex)).toEqual(
+      solved.dilutionRounds.map((r) => realExtremeIndex(r))
+    );
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('puts the target passage next to the question and submits one real decode', async () => {
+    const config: ContextDegradationConfig = {
+      mode: 'budget-subset',
+      corpus: 'retrieval-facts',
+      targetFactId: 'venus',
+      distractorFactIds: ['burj', 'statue'],
+      budget: 2,
+      maxTokens: 10,
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const state = initState(config, subsetRules, prepared);
+
+    const levers = solve(state);
+    expect(levers.order).toBe('distractor-first');
+    expect(levers.selectedDistractorId).toBe(prepared.distractorFacts[0]!.id);
+    expect(levers.attempts).toBe(0);
+
+    const solved = solve(state, {
+      subset: { distractorId: 'burj', order: 'distractor-first', decodedText: ' It takes 243 Earth days.' },
+    });
+    expect(solved.attempts).toBe(1);
+    expect(solved.solvedAtAttempt).toBe(1);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('builds the distractor-first context with the target passage last', () => {
+    const context = buildSubsetContext(FACT, DISTRACTOR_SAFE, 'distractor-first');
+    expect(context).toBe('The Burj Khalifa is 828 meters tall. A day on Venus takes 243 Earth days.');
+    expect(context.indexOf('243')).toBeGreaterThan(context.indexOf('828'));
+  });
+
+  it('records a real decode that missed as a failed attempt rather than a pass', async () => {
+    const config: ContextDegradationConfig = {
+      mode: 'budget-subset',
+      corpus: 'retrieval-facts',
+      targetFactId: 'venus',
+      distractorFactIds: ['burj', 'statue'],
+      budget: 2,
+      maxTokens: 10,
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const solved = solve(initState(config, subsetRules, prepared), {
+      subset: { distractorId: 'statue', order: 'distractor-first', decodedText: ' 93 meters tall.' },
+    });
+    expect(solved.attempts).toBe(1);
+    expect(solved.solved).toBe(false);
+    expect(evaluate(solved).passed).toBe(false);
   });
 });

@@ -47,7 +47,30 @@
         "The fact is planted at the very start of a growing block of unrelated real text before the question is asked at the end. Longer really does mean harder to retrieve — there's a real point where the model stops finding it.",
         "Watch the model's own wording, not just whether it eventually says a number: just past the real breaking point it still attempts an answer, but gets the actual digits wrong rather than refusing to answer or trailing off.",
         "Checked directly against the real model: with the fact at the very start, correct retrieval holds at 300 and 900 words of added real filler text ('243 Earth days...' both times) and fails by 1,200 words, where the real decode drops a digit ('24 days')."
-      ]
+      ],
+      "solution": {
+        "problem": "One real fact about Venus is planted at the very start of a block of real filler text — the opening of Pride and Prejudice — and that block grows through three lengths: 300, 900 and 1,200 added words. The model has already been asked the Venus question at each length, and the answers are already recorded. Your job is to predict, for each length, whether the retrieval actually held.",
+        "steps": [
+          {
+            "title": "Know what makes this hard for the model",
+            "body": "The fact never moves. It is always the first thing in the context, and the question is always the last. What changes is how much unrelated text sits between them — so this measures whether a needle stays findable as the haystack grows, not whether the model knows anything about Venus."
+          },
+          {
+            "title": "Expect a breaking point, not a slope",
+            "body": "Degradation with context length is not a gentle fade. Retrieval tends to hold at full accuracy and then stop working, which is why this level asks for a yes/no per length rather than a score. The interesting question is where the edge sits."
+          },
+          {
+            "title": "Read the measured results",
+            "body": "Checked against the real model: 300 words of filler still retrieves correctly ('243 Earth days'), and so does 900. At 1,200 it breaks. So the first two are successes and the third is a failure."
+          },
+          {
+            "title": "Notice how it fails",
+            "body": "This is the part worth carrying forward. Past the breaking point the model does not refuse, and it does not trail off — it answers confidently with '24 days', a corrupted version of the real digits. A failed retrieval that looks exactly like a successful one is far more dangerous than an empty response, because nothing downstream can tell them apart."
+          }
+        ],
+        "answer": "Mark 300 and 1,200 correctly: retrieval holds at 300 and 900 words, and fails at 1,200 — three stars needs all three right. Autofill answers each length from the real decode this level already ran at that length on your device, so if your machine's run broke at a different length, it follows your run.",
+        "takeaway": "A model's advertised context window is the length it will accept, not the length at which it still works. Retrieval quality degrades well before the window fills, and it degrades into confident wrong answers rather than visible failures — which is why long-context claims need measuring on your own task rather than reading off a spec sheet."
+      }
     },
     {
       "id": "8-2-l2",
@@ -80,7 +103,26 @@
         "Attention is a fixed budget shared across every real token in the sentence — the more words compete for it, the thinner any one word's real share gets, whether or not that word matters much to the sentence's meaning.",
         "The sentence's own subject tends to hold onto a disproportionate share of real attention even as the sentence grows around it. It's the words playing a smaller grammatical role — a preposition, a short connector — that get crowded out hardest as more of them pile up.",
         "Checked directly against the real attention model, averaged across every real layer and head: in the short first sentence, 'studied' holds the most attention. In the three longer sentences, 'near' (13 tokens), then 'part' (23 tokens), then 'in' (36 tokens) each hold the least — down to about 1% of the real total in the longest sentence — while 'Marie' holds the most in all three."
-      ]
+      ],
+      "solution": {
+        "problem": "The same sentence about Marie grows across four rounds, each ending in the same period. A real transformer has already computed how much of that final token's attention goes to every earlier word, averaged over every layer and every head. Round 1 asks which word holds the most; rounds 2 to 4 ask which holds the least.",
+        "steps": [
+          {
+            "title": "Remember that attention is a fixed budget",
+            "body": "The weights from one token to all the others are a probability distribution — they sum to 1. Adding words does not add attention, it divides the same amount more ways. In the longest sentence here, 36 tokens share what 3 tokens shared in the first, so the average share falls by an order of magnitude no matter how meaningful any individual word is."
+          },
+          {
+            "title": "Know who keeps their share",
+            "body": "Dilution is not uniform. The sentence's subject holds a disproportionate share as the sentence grows — 'Marie' is the maximum in all three long rounds. What gets crowded out hardest are the words doing small grammatical jobs: prepositions and short connectors, which are individually interchangeable and carry little that the final token needs."
+          },
+          {
+            "title": "Read the measured extremes",
+            "body": "Round 1, the short sentence, asks for the maximum: 'studied'. Rounds 2 to 4 ask for the minimum, and the answer is a preposition or connector each time — 'near' at 13 tokens, 'part' at 23, 'in' at 36, the last of which holds only about 1% of the total attention."
+          }
+        ],
+        "answer": "Pick 'studied' in round 1, then 'near', 'part' and 'in' in rounds 2 to 4 — 4 of 4, three stars. Autofill reads each round's real attention row and selects its actual extreme, so it stays correct even if your device's attention model resolves a near-tie differently.",
+        "takeaway": "'Lost in the middle' is this effect, measured. As context grows, every individual token's share of attention shrinks, and the tokens that lose the most are the ones the model has least structural reason to keep — which is why stuffing a prompt with more retrieved passages can make the answer worse even when the right passage is definitely in there."
+      }
     },
     {
       "id": "8-2-l3",
@@ -111,7 +153,30 @@
         "Every one of the three extra facts is individually harmless on its own merits — the real danger isn't which fact you add, it's where you put it relative to the question.",
         "The passage sitting closest to 'Question:' pulls far harder on the real answer than the one placed first, regardless of what that closer passage happens to be about. The Mariana Trench's own real answer also takes several tokens to produce, which makes it especially vulnerable to losing that pull.",
         "Checked directly in a real browser run, for all three extra facts, in both orders: placing the target passage right before the question (the extra fact first) succeeds every time — 3 of 3 real combinations. Placing an extra fact right before the question (target first) fails every time — 0 of 3 — sometimes by producing that fact's own number instead, sometimes by trailing off before finishing the real digits."
-      ]
+      ],
+      "solution": {
+        "problem": "You have room for the Mariana Trench passage plus exactly one more fact, chosen from three candidates, in either order. Then you test whether the model still answers the trench question correctly. The score is how few attempts that takes, so three stars means getting it right before the first test.",
+        "steps": [
+          {
+            "title": "Notice which lever actually matters",
+            "body": "There are two choices here and they are not equally important. Which extra fact you add barely matters — all three are ordinary, correct, unrelated facts. Where you put it relative to the question is what decides the outcome."
+          },
+          {
+            "title": "Think about what sits closest to the question",
+            "body": "The passage immediately before 'Question:' pulls hardest on what the model produces next. If that is the extra fact, the model tends to continue *that* fact rather than answer — sometimes producing that fact's own number instead of the trench's."
+          },
+          {
+            "title": "Account for how long the real answer is",
+            "body": "The trench's answer, 10,935, takes several tokens to produce. An answer that needs a longer run of committed tokens is more vulnerable to being derailed part-way than a short one, which is why this particular fact is a good stress test and why trailing off before finishing the digits is one of the observed failures."
+          },
+          {
+            "title": "Read the sweep",
+            "body": "Measured in a real browser, for all three extra facts, in both orders: extra fact first — with the trench passage adjacent to the question — succeeds every time, 3 of 3. Trench passage first, extra fact adjacent to the question, fails every time, 0 of 3. The order is doing all of the work."
+          }
+        ],
+        "answer": "Pick any one of the three extra facts and place it first, so the Mariana Trench passage sits directly before the question, then test once: solved on attempt 1, three stars. Autofill does exactly that, decoding for real and submitting only a run that genuinely reached 10,935 — and if the first candidate fact does not work on your device it tries the next rather than recording a failure.",
+        "takeaway": "Context is not a bag. The same facts in a different order are a different prompt, and the position nearest the question is the most valuable real estate you have. When a retrieval system returns several passages, the ordering decision is not cosmetic — it is part of the answer."
+      }
     }
   ]
 }

@@ -18,19 +18,22 @@ import {
   applyAction,
   evaluate,
   realExtremeIndex,
+  solve,
+  buildSubsetContext,
   type ContextDegradationAction,
   type ContextDegradationConfig,
   type ContextDegradationState,
   type DilutionRound,
   type LengthRound,
 } from '@/engines/contextDegradationEngine';
-import { buildGroundedPrompt, greedyDecode } from '@/engines/groundedGenerationEngine';
+import { buildGroundedPrompt, containsAnswer, greedyDecode } from '@/engines/groundedGenerationEngine';
 import { tinyCausalLM, CAUSAL_LM_MODEL_ID } from '@/models/tinyCausalLM';
 import { attentionModel, ATTENTION_MODEL_ID } from '@/models/attentionModel';
 import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -68,7 +71,9 @@ export function ContextDegradationCanvas({ game, level, onScore, onSubmit }: Gam
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board state={state} dispatch={dispatch} setState={setState} onScore={onScore} onSubmit={onSubmit} />
+      )}
     </ModelGate>
   );
 }
@@ -76,11 +81,14 @@ export function ContextDegradationCanvas({ game, level, onScore, onSubmit }: Gam
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: ContextDegradationState;
   dispatch: (action: ContextDegradationAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: ContextDegradationState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -94,6 +102,53 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. The first two levels are answered from the
+  // measurements `prepare()` already made. The budget level is scored on a
+  // real decode, so the fill runs one — trying each candidate fact in turn,
+  // target passage adjacent to the question, and submitting only the run that
+  // genuinely reached the answer, so the recorded attempt count is honest.
+  const [filling, setFilling] = useState(false);
+
+  useSolutionFill(
+    useCallback(() => {
+      if (state.mode !== 'budget-subset') {
+        const solved = solve(state);
+        // Untouched means there was nothing to answer from; submitting it
+        // would record a failure the player never made.
+        if (solved === state) return;
+        setState(solved);
+        setRevealed(true);
+        onSubmit(evaluate(solved));
+        return;
+      }
+
+      void (async () => {
+        setFilling(true);
+        try {
+          const target = state.targetFact;
+          if (!target) return;
+          for (const distractor of state.distractorFacts) {
+            const context = buildSubsetContext(target, distractor, 'distractor-first');
+            const prompt = buildGroundedPrompt(context, target.query);
+            const decodedText = await greedyDecode(tinyCausalLM, prompt, state.config.maxTokens ?? 16);
+            if (!containsAnswer(decodedText, target.answer)) continue;
+            const solved = solve(state, {
+              subset: { distractorId: distractor.id, order: 'distractor-first', decodedText },
+            });
+            setState(solved);
+            onSubmit(evaluate(solved));
+            return;
+          }
+          // Nothing reached the answer on this device: set the arrangement and
+          // stop rather than spending an attempt on a run that did not work.
+          setState(solve(state));
+        } finally {
+          setFilling(false);
+        }
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));
@@ -111,7 +166,14 @@ function Board({
           {state.mode === 'needle-haystack' && <LengthBoard state={state} dispatch={dispatch} />}
           {state.mode === 'attention-dilution' && <DilutionBoard state={state} dispatch={dispatch} />}
           {state.mode === 'budget-subset' && (
-            <BudgetBoard state={state} dispatch={dispatch} result={result} onReset={resetRun} onSubmitFinal={submit} />
+            <BudgetBoard
+              state={state}
+              dispatch={dispatch}
+              result={result}
+              filling={filling}
+              onReset={resetRun}
+              onSubmitFinal={submit}
+            />
           )}
         </div>
       </div>
@@ -321,12 +383,15 @@ function BudgetBoard({
   state,
   dispatch,
   result,
+  filling,
   onReset,
   onSubmitFinal,
 }: {
   state: ContextDegradationState;
   dispatch: (action: ContextDegradationAction) => void;
   result: ReturnType<typeof evaluate>;
+  /** True while the worked solution's autofill is running its real decode. */
+  filling: boolean;
   onReset: () => void;
   onSubmitFinal: () => void;
 }) {
@@ -440,6 +505,7 @@ function BudgetBoard({
           <RotateCcw size={13} strokeWidth={2} />
           Reset
         </Button>
+        {filling && <Tag tone="accent">running the solution&rsquo;s context…</Tag>}
         <Button variant="primary" className="ml-auto" disabled={!state.solved} onClick={onSubmitFinal}>
           <Check size={13} strokeWidth={2} />
           Submit

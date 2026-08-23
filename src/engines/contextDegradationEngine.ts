@@ -314,6 +314,67 @@ export function realExtremeIndex(round: DilutionRound): number {
   return best;
 }
 
+/**
+ * Builds the exact context string the budget-subset level scores, so the
+ * canvas and the worked solution assemble it the same way.
+ */
+export function buildSubsetContext(
+  target: ContextFact,
+  distractor: ContextFact,
+  order: 'target-first' | 'distractor-first'
+): string {
+  const targetText = target.sentences.join(' ');
+  const distractorText = distractor.sentences.join(' ');
+  return order === 'target-first' ? `${targetText} ${distractorText}` : `${distractorText} ${targetText}`;
+}
+
+/**
+ * The worked solution's autofill.
+ *
+ * The first two modes are pure: both were already measured during `prepare()`
+ * — real decodes at each haystack length, and a real attention row averaged
+ * over every layer and head — so the answers are read back out of the same
+ * numbers the board is showing. The third is scored on a real decode, so the
+ * canvas runs it and passes the text in; with none supplied this only sets the
+ * arrangement.
+ */
+export function solve(
+  state: ContextDegradationState,
+  options?: { subset?: { distractorId: string; order: 'target-first' | 'distractor-first'; decodedText: string } }
+): ContextDegradationState {
+  switch (state.mode) {
+    case 'needle-haystack': {
+      let next = state;
+      state.lengthRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'GUESS_LENGTH', roundIndex, guess: round.passed });
+      });
+      return next;
+    }
+
+    case 'attention-dilution': {
+      let next = state;
+      state.dilutionRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'GUESS_DILUTION', roundIndex, tokenIndex: realExtremeIndex(round) });
+      });
+      return next;
+    }
+
+    case 'budget-subset': {
+      const distractorId = options?.subset?.distractorId ?? state.distractorFacts[0]?.id;
+      if (!distractorId) return state;
+      let next = applyAction(state, { type: 'SELECT_DISTRACTOR', factId: distractorId });
+      // Distractor first, so the target passage ends up adjacent to the
+      // question — the arrangement measured to survive with every one of this
+      // level's three candidate facts.
+      next = applyAction(next, { type: 'SET_ORDER', order: options?.subset?.order ?? 'distractor-first' });
+      if (options?.subset) {
+        next = applyAction(next, { type: 'TEST_SUBSET', decodedText: options.subset.decodedText });
+      }
+      return next;
+    }
+  }
+}
+
 export function evaluate(state: ContextDegradationState): ScoreResult {
   switch (state.mode) {
     case 'needle-haystack': {
