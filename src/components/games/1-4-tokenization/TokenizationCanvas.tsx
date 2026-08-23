@@ -21,6 +21,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type PuzzleState,
   type SampleState,
   type TokenMergeAction,
@@ -31,6 +32,7 @@ import { tokenizerModel, prettifyToken, TOKENIZER_MODEL_ID } from '@/models/toke
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -64,7 +66,13 @@ export function TokenizationCanvas({ game, level, onScore, onSubmit }: GameCompo
       load={load}
     >
       {state && (
-        <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
       )}
     </ModelGate>
   );
@@ -73,11 +81,14 @@ export function TokenizationCanvas({ game, level, onScore, onSubmit }: GameCompo
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: TokenMergeState;
   dispatch: (action: TokenMergeAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: TokenMergeState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -100,6 +111,39 @@ function Board({
   // A merge puzzle played to the end cannot be replayed without this.
   useRetrySignal(resetRun);
 
+  /** The string the solution submitted, mirrored into the break board's box. */
+  const [filledText, setFilledText] = useState<string | null>(null);
+
+  /**
+   * The solution's autofill.
+   *
+   * "Break the tokenizer" is scored on a string's real token count, so the fill
+   * has to tokenize the level's own `solutionText` for real before the engine
+   * can take the attempt — the engine never sees a tokenizer. The other two
+   * modes are pure state and need nothing.
+   */
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        let next = state;
+        if (state.mode === 'break-tokenizer') {
+          const text = state.config.solutionText ?? '';
+          if (text.length === 0) return;
+          const tokens = await tokenizerModel.tokenize(text);
+          next = solve(state, {
+            attempt: { text, tokenCount: tokens.length, charCount: [...text].length },
+          });
+          setFilledText(text);
+        } else {
+          next = solve(state);
+        }
+        setState(next);
+        setRevealed(true);
+        onSubmit(evaluate(next));
+      })();
+    }, [state, setState, onSubmit])
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto p-3">
@@ -110,7 +154,9 @@ function Board({
           {state.mode === 'merge-puzzle' && (
             <MergeBoard state={state} dispatch={dispatch} revealed={revealed} />
           )}
-          {state.mode === 'break-tokenizer' && <BreakBoard state={state} dispatch={dispatch} />}
+          {state.mode === 'break-tokenizer' && (
+            <BreakBoard state={state} dispatch={dispatch} filledText={filledText} />
+          )}
         </div>
       </div>
 
@@ -386,11 +432,20 @@ const SHATTERED_RATIO = 1;
 function BreakBoard({
   state,
   dispatch,
+  filledText,
 }: {
   state: TokenMergeState;
   dispatch: (action: TokenMergeAction) => void;
+  /** Set when the solution filled the level in, so the box shows what it submitted. */
+  filledText: string | null;
 }) {
   const [text, setText] = useState('');
+
+  // The attempt is already recorded in engine state by then; this is so the
+  // player can see, and edit, the string that did it.
+  useEffect(() => {
+    if (filledText !== null) setText(filledText);
+  }, [filledText]);
   const [tokens, setTokens] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const request = useRef(0);

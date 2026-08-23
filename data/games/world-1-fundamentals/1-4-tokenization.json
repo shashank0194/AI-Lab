@@ -51,7 +51,34 @@
         "Common English words are usually one token each, but leading or repeated whitespace, digits and unusual symbols each tend to cost their own token — count words and count irregularities separately.",
         "'The quick brown fox' is four ordinary words → four tokens. Long words built from familiar English prefixes and suffixes (like the parts of 'antidisestablishmentarianism') often tokenize into far fewer pieces than their letter count suggests, since GPT-2 has learned those parts as single tokens.",
         "Real counts: 'The quick brown fox' = 4, 'antidisestablishmentarianism' = 5, '1234567890' = 4, the irregular-spacing string = 6, and the emoji line = 6."
-      ]
+      ],
+      "solution": {
+        "problem": "Five strings, five guesses at how many tokens GPT-2 splits each one into. A guess counts as correct within a tolerance of 1, so this is testing whether you have the right mental model of what a token is — not whether you can count byte-pair merges in your head.",
+        "steps": [
+          {
+            "title": "Start from the rule that actually holds",
+            "body": "A token is not a word and not a character. It is a chunk the tokenizer saw often enough during training to be worth storing. For ordinary English that lands at roughly one token per word: 'The quick brown fox' is exactly 4 tokens — ['The', ' quick', ' brown', ' fox'], with the leading space belonging to the token that follows it."
+          },
+          {
+            "title": "Long words are cheaper than they look",
+            "body": "'antidisestablishmentarianism' is 28 characters and only 5 tokens: ['ant', 'idis', 'establishment', 'arian', 'ism']. The middle chunk is a whole common word, and the ending is a familiar suffix. Length is a bad predictor; familiarity is a good one."
+          },
+          {
+            "title": "Digits and whitespace are where the cost hides",
+            "body": "'1234567890' is not one number and not ten digits — it comes out as 4 tokens, ['123', '45', '678', '90'], because GPT-2 learned particular digit runs as chunks and this string does not match a single one of them. The irregular-spacing string is 6 tokens, because each run of extra spaces gets tokens of its own rather than being collapsed."
+          },
+          {
+            "title": "Anything outside ASCII pays by the byte",
+            "body": "'🧬 emoji count too' is 6 tokens, and 3 of them are the emoji alone — ['ðŁ', '§', '¬'] is what one 4-byte character looks like after byte-level fallback. Three words plus one emoji costs the same as six words."
+          },
+          {
+            "title": "Aim for the tolerance, not the exact number",
+            "body": "Being within 1 counts, so a sensible estimate almost always lands: guessing 4 for the fox line, 5 or 6 for the long word, 4 for the digits, 5–7 for the spacing line and 5–7 for the emoji line clears every one. Three of five is 0.6 and a one-star pass; all five is three stars."
+          }
+        ],
+        "answer": "4, 5, 4, 6, 6 — the counts the real GPT-2 tokenizer produces for the five samples in order. Autofill enters exactly those, which is 5/5 and three stars.",
+        "takeaway": "Token counts are what you are billed for and what fills a context window, and they are not proportional to how much you wrote. The same paragraph in English and in a non-Latin script can differ by 3–5× in cost, entirely because of what the tokenizer happened to be trained on."
+      }
     },
     {
       "id": "1-4-l2",
@@ -79,7 +106,30 @@
         "Start from single characters and merge the pair that the real tokenizer would merge earliest — common two-letter combinations tend to merge before rarer ones, and the order is fixed by GPT-2's own training, not by what looks intuitive.",
         "All three words end up as recognisable sub-word chunks — think about which prefix or suffix each word is built from that GPT-2 would already know as its own single token.",
         "The final pieces are: 'lower' stays as one whole token (no split), 'newest' splits into 'new' + 'est', and 'tokenizer' splits into 'token' + 'izer'."
-      ]
+      ],
+      "solution": {
+        "problem": "You are replaying byte-pair encoding by hand. Each word starts as single characters, and at every step exactly one adjacent pair is correct: the one with the lowest merge rank in GPT-2's real merge table. The score is correct merges over the 15 steps the three words take between them, and a wrong merge still changes the board — which is what makes it visible.",
+        "steps": [
+          {
+            "title": "Merge rank is frequency, not intuition",
+            "body": "GPT-2's merge table is ordered by how often each pair was worth merging during training. Rank 7 is 'e'+'r'; rank 12 is 'e'+'n'; rank 18 is 'e'+'s'. Those are the most common English letter pairs, and they fire before anything longer. In both 'lower' and 'tokenizer' the very first correct move is merging e+r."
+          },
+          {
+            "title": "Work 'lower' through",
+            "body": "l·o·w·e·r → e+r at rank 7 gives l·o·w·er → o+w at rank 66 gives l·ow·er → ow+er at rank 533 gives l·ower → and finally l+ower at rank 20781 gives the whole word as one token. Four merges, and the last one has a rank three orders of magnitude higher than the first — 'lower' is common enough to be a single token, but only just."
+          },
+          {
+            "title": "Watch 'newest' stop short of one token",
+            "body": "n·e·w·e·s·t → e+s (18) → es+t (139) → e+w (157) → n+ew (3349), leaving 'new' + 'est'. There is no merge for 'new'+'est' anywhere in the table, so the word ends as two tokens. Note the order: the suffix assembles before the prefix, because 'est' is a more common pair than 'ne'."
+          },
+          {
+            "title": "And 'tokenizer' the same way",
+            "body": "t·o·k·e·n·i·z·e·r → e+r (7) → e+n (12) → o+k (226) → i+z (272) → ok+en (3977) → iz+er (7253) → t+oken (29745), leaving 'token' + 'izer'. Seven merges, and again the pieces that survive are the ones a person would call morphemes — arrived at purely by frequency counting, with nobody ever defining a morpheme."
+          }
+        ],
+        "answer": "Merge in strict rank order: for 'lower' e+r, o+w, ow+er, l+ower (one token); for 'newest' e+s, es+t, e+w, n+ew ('new'+'est'); for 'tokenizer' e+r, e+n, o+k, i+z, ok+en, iz+er, t+oken ('token'+'izer'). Autofill replays all 15 merges in the tokenizer's own rank order — 15/15 and three stars.",
+        "takeaway": "BPE is a compression algorithm that was never told anything about language, and it rediscovers prefixes and suffixes anyway, because morphemes are exactly the substrings that repeat. That is also why it splits unfamiliar words in ways that look arbitrary — there is no linguistic rule underneath, only counts."
+      }
     },
     {
       "id": "1-4-l3",
@@ -92,7 +142,8 @@
         "maxChars": 40,
         "minChars": 8,
         "attempts": 5,
-        "allowUserWords": true
+        "allowUserWords": true,
+        "solutionText": "🜛𓂀⟠ᚠ෴ཌྷ𝔔௵ꙮ"
       },
       "passCriteria": {
         "metric": "fertilityScore",
@@ -107,9 +158,32 @@
       "xpReward": 50,
       "hints": [
         "The tokenizer is efficient at English words it has seen often. It is inefficient at things it has almost never seen as a whole chunk — rare symbols, mixed scripts, and characters typed with no recognisable pattern.",
-        "Random keyboard mashing, uncommon Unicode characters (accented letters outside common European languages, symbols, emoji) and strings that mix scripts or alternate wildly in case tend to fragment into close to one token per character.",
+        "Random ASCII mashing is not enough on its own — measured against the real tokenizer, a line like 'xkqvzjwpfg mnbvcxz' only reaches about 0.67 tokens per character, because GPT-2 has a chunk for almost any short Latin letter sequence. What does break it is leaving the alphabet entirely: accented letters, non-Latin scripts, symbols and emoji fall back to one token per UTF-8 byte, which is 2–4 tokens for every character you type.",
         "String together unusual symbols, emoji and rare accented or non-Latin characters with no repeating pattern — mixing several different kinds of 'unfamiliar' in one short string reliably drives the tokens-per-character ratio toward its worst case, since the tokenizer has almost no shared sub-word chunks to fall back on."
-      ]
+      ],
+      "solution": {
+        "problem": "You have five attempts to write a string, between 8 and 40 characters, that the tokenizer handles as badly as possible. The score is fertility — tokens per character, rescaled so that 0.25 (fluent English) is 0 and 1.0 (one token per character) is 1 — and only your best attempt counts. Anything at or above one token per character scores a full 1.0.",
+        "steps": [
+          {
+            "title": "Measure the baseline you are trying to beat",
+            "body": "'The quick brown fox' is 19 characters and 4 tokens: 0.21 tokens per character, which scores a flat 0. That is what the tokenizer is optimised for, and it is the floor this level measures you against."
+          },
+          {
+            "title": "Know why keyboard mashing is not enough",
+            "body": "The obvious idea — type nonsense — mostly fails, and this is worth testing rather than assuming. 'xkqvzjwpfg mnbvcxz' scores 0.67 tokens per character, which is only 0.56 and a single star. 'aeiou bcdfg' scores 0.55 tokens per character, or 0.39, which does not pass at all. Random ASCII is still ASCII, and GPT-2 has chunks for almost every short Latin letter sequence."
+          },
+          {
+            "title": "Leave the alphabet the tokenizer was trained on",
+            "body": "The real lever is bytes. GPT-2's vocabulary is byte-level, so any character outside its learned chunks falls back to one token per UTF-8 byte — and non-Latin characters are 2–4 bytes each. Measured: accented Latin ('çéîõüñåøßÿ') gives 1.20 tokens per character, Cyrillic ('ЖЩЂЄѦѪѮҌ') gives 2.00, and emoji give 2.38. Any one of those already scores a full 1.0. You do not need to mix scripts — one unfamiliar script is enough."
+          },
+          {
+            "title": "Push it to the worst case if you want to see the ceiling",
+            "body": "Stringing together characters from several rare scripts and symbol blocks at once — runes, hieroglyphs, alchemical symbols, rare Indic and Cyrillic letters — reaches about 3.1 tokens per character: 10 characters costing 31 tokens. The fertility score caps at 1.0 long before that, but the ratio is the honest measure of how badly this goes."
+          }
+        ],
+        "answer": "Any short string of non-Latin characters clears it: '🜛𓂀⟠ᚠ෴ཌྷ𝔔௵ꙮ' is 10 characters and 31 real tokens, a ratio of 3.1 and a full 1.0 fertility. Autofill submits exactly that string, tokenized live, for three stars.",
+        "takeaway": "This is a real fairness problem, not a curiosity. The same sentence costs several times more tokens in Hindi, Amharic or Burmese than in English, which means it costs more money, fills the context window faster and leaves less room for the model to reason — a direct consequence of whose text was in the training corpus."
+      }
     }
   ]
 }

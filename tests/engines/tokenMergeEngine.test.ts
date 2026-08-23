@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type TokenMergeConfig,
 } from '@/engines/tokenMergeEngine';
 import type { TokenizerDep } from '@/engines/deps';
@@ -309,5 +310,89 @@ describe('tokenMergeEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('tokenMergeEngine — solve', () => {
+  it('answers every sample with the tokenizer’s own count', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { tokenizer: fakeTokenizer });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+    const result = evaluate(solved);
+
+    for (const sample of solved.samples) expect(sample.guess).toBe(sample.count);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('replays every merge in the tokenizer’s own rank order', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { tokenizer: fakeTokenizer });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+    const result = evaluate(solved);
+
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+    // Every puzzle is played out to the end, not just started.
+    for (const puzzle of solved.puzzles) {
+      expect(puzzle.correctSteps).toBe(puzzle.merges.length);
+      expect(puzzle.attemptedSteps).toBe(puzzle.merges.length);
+      expect(puzzle.done).toBe(true);
+    }
+  });
+
+  it('recovers a merge board the player has already broken', async () => {
+    // A wrong merge reshapes the board so the remaining correct merges no
+    // longer fit; the fill has to rewind rather than carry on from there.
+    const config = configFor(1);
+    const prepared = await prepare(config, { tokenizer: fakeTokenizer });
+    let state = initState(config, rulesFor(1), prepared);
+    state = applyAction(state, { type: 'APPLY_MERGE', puzzleIndex: 0, position: 2 });
+    state = applyAction(state, { type: 'APPLY_MERGE', puzzleIndex: 0, position: 0 });
+    expect(evaluate(state).value).toBeLessThan(1);
+
+    const result = evaluate(solve(state));
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('submits the attempt the canvas tokenized for it', async () => {
+    const config = configFor(2);
+    const state = initState(config, rulesFor(2), { samples: [], puzzles: [] });
+    // A real measurement of the level's own solutionText, against the real
+    // GPT-2 tokenizer: 10 characters, 31 tokens.
+    const solved = solve(state, {
+      attempt: { text: config.solutionText!, tokenCount: 31, charCount: 10 },
+    });
+    const result = evaluate(solved);
+
+    expect(solved.attempts).toHaveLength(1);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('rewinds when every attempt has already been spent', async () => {
+    const config = configFor(2);
+    let state = initState(config, rulesFor(2), { samples: [], puzzles: [] });
+    for (let i = 0; i < config.attempts!; i++) {
+      state = applyAction(state, {
+        type: 'SUBMIT_ATTEMPT',
+        attempt: { text: 'the quick brown fox', tokenCount: 4, charCount: 19 },
+      });
+    }
+    expect(state.attempts).toHaveLength(config.attempts!);
+    expect(evaluate(state).passed).toBe(false);
+
+    const result = evaluate(
+      solve(state, { attempt: { text: config.solutionText!, tokenCount: 31, charCount: 10 } })
+    );
+    expect(result.passed).toBe(true);
+    expect(result.stars).toBe(3);
+  });
+
+  it('does nothing for break-tokenizer without an attempt to submit', () => {
+    const config = configFor(2);
+    const state = initState(config, rulesFor(2), { samples: [], puzzles: [] });
+    expect(solve(state).attempts).toEqual([]);
   });
 });

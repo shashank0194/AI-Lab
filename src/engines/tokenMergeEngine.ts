@@ -22,6 +22,12 @@ export interface TokenMergeConfig {
   minChars?: number;
   attempts?: number;
   allowUserWords?: boolean;
+  /**
+   * The string the worked solution submits for `break-tokenizer`. Content, so
+   * it lives in the level JSON — the engine never sees a tokenizer, and the
+   * canvas has to tokenize it for real before the attempt can be scored.
+   */
+  solutionText?: string;
 }
 
 export interface Merge {
@@ -255,6 +261,67 @@ export function applyAction(state: TokenMergeState, action: TokenMergeAction): T
 
     case 'SUBMIT':
       return { ...state, status: 'complete', actionCount: state.actionCount + 1 };
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The board this level's own tokenizer output says is right.
+ *
+ * `break-tokenizer` is the one mode that cannot be solved from state alone: the
+ * score comes from a string's real token count, and tokenizing is exactly what
+ * this module is kept away from. The canvas tokenizes the level's
+ * `solutionText` and hands the finished attempt in.
+ */
+export function solve(
+  state: TokenMergeState,
+  options?: { attempt?: BreakAttempt }
+): TokenMergeState {
+  switch (state.mode) {
+    case 'count-tokens': {
+      let next = state;
+      state.samples.forEach((sample, sampleIndex) => {
+        next = applyAction(next, { type: 'GUESS_COUNT', sampleIndex, value: sample.count });
+      });
+      return next;
+    }
+
+    case 'merge-puzzle': {
+      // Replayed from scratch rather than continued: a wrong merge already
+      // applied has changed the board into a shape the remaining correct
+      // merges no longer fit, and `correctSteps` is scored out of every step,
+      // so redoing all of them cleanly is both simpler and strictly better.
+      let next = applyAction(state, { type: 'RESET' });
+
+      next.puzzles.forEach((_, puzzleIndex) => {
+        // Bounded by the merge count: each iteration consumes exactly one, and
+        // an unfindable pair (never seen in practice) must not spin forever.
+        const total = next.puzzles[puzzleIndex]!.merges.length;
+        for (let step = 0; step < total; step++) {
+          const puzzle = next.puzzles[puzzleIndex]!;
+          const merge = puzzle.merges[puzzle.stepIndex];
+          if (!merge || puzzle.done) break;
+          const position = puzzle.symbols.findIndex(
+            (symbol, i) => symbol === merge.left && puzzle.symbols[i + 1] === merge.right
+          );
+          if (position === -1) break;
+          next = applyAction(next, { type: 'APPLY_MERGE', puzzleIndex, position });
+        }
+      });
+      return next;
+    }
+
+    case 'break-tokenizer': {
+      const attempt = options?.attempt;
+      if (!attempt) return state;
+      // Every attempt spent means the submission would be ignored outright.
+      const exhausted = state.attempts.length >= (state.config.attempts ?? Infinity);
+      const base = exhausted ? applyAction(state, { type: 'RESET' }) : state;
+      return applyAction(base, { type: 'SUBMIT_ATTEMPT', attempt });
+    }
   }
 }
 
