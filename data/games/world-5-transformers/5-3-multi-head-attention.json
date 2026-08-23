@@ -50,7 +50,30 @@
         "Look at layer 0 first. Earlier layers are where raw positional patterns like \"attend to the previous token\" tend to show up most cleanly, before later layers drift toward delimiter-heavy attention.",
         "A previous-token head's matrix has weight concentrated one cell to the left of the diagonal in almost every row. Scan the twelve mini-matrices for that stripe rather than reading the numbers.",
         "At layer 0, head 2 attends to the immediately preceding token with about 0.83 average weight, and it's the only head at that layer classified previous-token — every other head is diffuse. Nominate head 2 in all three rounds for a perfect score."
-      ]
+      ],
+      "solution": {
+        "problem": "Twelve attention heads run in parallel at every layer, and they do not all do the same thing. Each head's behaviour here is measured from its own real attention matrix — how much weight it puts on the previous token, the next one, itself, punctuation, or nothing in particular. You nominate a head that specialises in attending to the previous token, three times.",
+        "steps": [
+          {
+            "title": "Know what the labels mean mechanically",
+            "body": "A previous-token head puts most of each row's weight one position back. A delimiter head parks its weight on punctuation or sentence boundaries. A self head attends mostly to the token itself. Diffuse means no strong pattern — the row is spread out. These are measurements of the matrix, not interpretations of it."
+          },
+          {
+            "title": "Look at layer 0 first",
+            "body": "Early layers are where the mechanical, position-based heads live, because there is not yet much semantic content to attend to. Later layers are where the content-driven behaviour from chapter 5.2 appears. Starting at layer 0 is the fastest route to a clean specialist."
+          },
+          {
+            "title": "Find the one head that is doing it",
+            "body": "At layer 0 of this model, head 2 attends to the immediately preceding token with about 0.83 average weight — and it is the only head at that layer classified as previous-token. Every other head there measures as diffuse. Specialisation is real but sparse: one head in twelve."
+          },
+          {
+            "title": "Use the same head every round",
+            "body": "All three rounds ask for the same behaviour, and there is only one head at this layer that has it, so nominating head 2 three times is a perfect score. That is not a loophole — it is the finding."
+          }
+        ],
+        "answer": "Nominate head 2 in all three rounds — the only previous-token specialist at layer 0, at about 0.83 average weight. Autofill nominates whichever head the level's own measurement identifies.",
+        "takeaway": "Multi-head attention is not twelve copies of the same computation. Heads differentiate during training into recognisable roles, and the fact that you can point at one and say what it does is the foundation of mechanistic interpretability."
+      }
     },
     {
       "id": "5-3-l2",
@@ -83,7 +106,30 @@
         "Not every head has a clean label. Heads whose top two behaviour scores are close together are excluded from grading entirely — this level's margin is 0.12, so spend your effort on the heads with an unambiguous pattern rather than guessing on borderline ones.",
         "A delimiter head lights up a whole column at [CLS] or [SEP] no matter which row (query) you look at. A diffuse head has no strong single pattern — weight spread out fairly evenly across the row.",
         "At layer 2, 7 of the 12 heads are gradable: heads 0, 4, 7, 9 and 11 are delimiter specialists; heads 6 and 10 are diffuse. Heads 1, 2, 3, 5 and 8 fall below the confidence margin and aren't graded either way. Labelling those 7 correctly scores a perfect 1.0."
-      ]
+      ],
+      "solution": {
+        "problem": "All twelve heads of layer 2 at once, and a label for each. Only heads whose measurement is clear-cut are graded — a head sitting between two behaviours has no defensible answer — so the score is over the gradable subset rather than all twelve.",
+        "steps": [
+          {
+            "title": "Check which heads are even in play",
+            "body": "At layer 2, 7 of the 12 heads clear the confidence margin. Heads 1, 2, 3, 5 and 8 fall below it and are not graded either way, so a wrong label on those costs nothing and a right one earns nothing. Five of twelve heads doing something genuinely ambiguous is itself worth noticing."
+          },
+          {
+            "title": "Label the delimiter cluster",
+            "body": "Heads 0, 4, 7, 9 and 11 are all delimiter specialists — they park their attention on punctuation and boundary tokens. Five heads in one layer doing the same job looks redundant, and it partly is: heads are not independently useful, and pruning studies routinely remove a third of them with little loss."
+          },
+          {
+            "title": "Label the diffuse pair",
+            "body": "Heads 6 and 10 measure as diffuse: no position or token type dominates their rows. Diffuse is a real classification here, not a failure to classify — a head spreading attention broadly is doing averaging work, which is useful even though it is not interpretable as a rule."
+          },
+          {
+            "title": "Read what the layer is doing overall",
+            "body": "Layer 2 has no previous-token, next-token or self specialists at all. The mechanical position heads were at layer 0; by layer 2 the model has moved on to structure. Watching that shift across layers is the point of the layer slider."
+          }
+        ],
+        "answer": "Heads 0, 4, 7, 9 and 11 → delimiter; heads 6 and 10 → diffuse. The other five are below the confidence margin and are not graded. Labelling those seven correctly is a perfect 1.0 and three stars. Autofill labels every head with its measured behaviour.",
+        "takeaway": "Interpretability is a measurement discipline with a lot of ambiguity in it. Five of twelve heads here have no clean label, and reporting that honestly — rather than forcing every head into a category — is what makes the other seven trustworthy."
+      }
     },
     {
       "id": "5-3-l3",
@@ -98,6 +144,7 @@
         "layerRange": [0, 5],
         "headCount": 12,
         "searchAllLayers": true,
+        "solutionDependency": { "fromIndex": 9, "toIndex": 2 },
         "behaviours": ["previous-token", "next-token", "self", "delimiter", "diffuse"],
         "excludeSpecialTokens": true,
         "attempts": 5,
@@ -118,7 +165,30 @@
         "The default sentence hides a subject-verb pair split by a relative clause: \"the keys that the neighbour returned last week are still on the table.\" The verb \"are\" has to agree with \"keys\", many tokens earlier — that split is the long-range dependency to hunt for.",
         "Attention isn't symmetric — the direction you probe matters, and the answer isn't always in the layer you start on. Probe from the later token back to the earlier one, and move the layer slider since the search spans every layer, not just the one shown.",
         "Probing from \"are\" (token 9) back to \"keys\" (token 2) at layer 3, head 1 finds a weight of 0.896 — the strongest link for that pair anywhere in the model, so it scores a perfect 1.0."
-      ]
+      ],
+      "solution": {
+        "problem": "'The keys that the neighbour returned last week are still on the table.' The verb 'are' agrees with 'keys', not with 'week' or 'neighbour', across an entire relative clause. You pick the token pair and then hunt for the head anywhere in the model that carries that link most strongly; the score is your best find divided by the strongest link that actually exists.",
+        "steps": [
+          {
+            "title": "Choose the pair that matters",
+            "body": "The interesting dependency is from 'are' (token 9) back to 'keys' (token 2) — seven tokens apart, with two other plural-looking nouns in between. If the model gets subject-verb agreement right here, something has to be carrying that link."
+          },
+          {
+            "title": "Search across layers, not just within one",
+            "body": "This level searches every layer, and that matters: the strongest link for this pair is not at the layer the board opens on. A head that does nothing interesting for most pairs can be the one that carries this one."
+          },
+          {
+            "title": "Find the head",
+            "body": "Layer 3, head 1 gives a weight of 0.896 between 'are' and 'keys' — the strongest link for that pair anywhere in this model, and a very high weight for a single attention entry. That is a specific head, in a specific layer, doing a specific grammatical job."
+          },
+          {
+            "title": "Understand the scoring",
+            "body": "The score divides what you found by the best that exists for your chosen pair, so it rewards searching thoroughly rather than hitting a number. It also means a badly chosen pair is still winnable — the level asks you to find the best head for the dependency you named, whatever you named."
+          }
+        ],
+        "answer": "Probe from 'are' (token 9) back to 'keys' (token 2), and take layer 3, head 1 — weight 0.896, the strongest link for that pair in the model, for a perfect 1.0 and three stars. Autofill sets that pair if you have not chosen one and probes the strongest head it can find.",
+        "takeaway": "Long-range grammatical agreement is carried by identifiable heads, which is the clearest demonstration in this course that attention is doing something structured rather than statistical smearing. It is also why head-level analysis is a real research method rather than a visualisation gimmick."
+      }
     }
   ]
 }

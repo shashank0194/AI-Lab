@@ -16,6 +16,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type HeadBehaviour,
   type MultiHeadDetectiveAction,
   type MultiHeadDetectiveConfig,
@@ -25,6 +26,7 @@ import { attentionModel, ATTENTION_MODEL_ID } from '@/models/attentionModel';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Slider, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -71,7 +73,14 @@ export function MultiHeadCanvas({ game, level, onScore, onSubmit }: GameComponen
       load={load}
     >
       {state && (
-        <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} loadSentence={loadSentence} />
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+          loadSentence={loadSentence}
+        />
       )}
     </ModelGate>
   );
@@ -80,12 +89,15 @@ export function MultiHeadCanvas({ game, level, onScore, onSubmit }: GameComponen
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
   loadSentence,
 }: {
   state: MultiHeadDetectiveState;
   dispatch: (action: MultiHeadDetectiveAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: MultiHeadDetectiveState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
   loadSentence: (sentence: string) => Promise<void>;
@@ -103,6 +115,17 @@ function Board({
   }, [dispatch]);
 
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the heads this sentence's own attention really
+  // singles out, or the strongest head anywhere in the model for the pair.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const [min, max] = state.config.layerRange ?? [state.layer, state.layer];
 

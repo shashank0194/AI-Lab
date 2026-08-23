@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   profileHead,
   bestDependencyAcross,
   type MultiHeadDetectiveConfig,
@@ -319,5 +320,51 @@ describe('multiHeadDetectiveEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('multiHeadDetectiveEngine — solve', () => {
+  it('nominates a head that really shows the target behaviour', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    const base = initState(config, rulesFor(0), prepared);
+    const solved = solve(base);
+
+    expect(base.targetHeads).toContain(solved.nominations[0]);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('labels every head with its measured behaviour', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+
+    for (const head of solved.heads) expect(head.answer).toBe(head.behaviour);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('probes the single strongest head anywhere in the model for the pair', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    const solved = solve(initState(config, rulesFor(2), prepared));
+    const result = evaluate(solved);
+
+    expect(solved.dependency).toEqual(config.solutionDependency);
+    expect(result.breakdown.bestFound).toBe(result.breakdown.bestPossible);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('keeps a pair the player already chose rather than replacing it', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    let state = initState(config, rulesFor(2), prepared);
+    state = applyAction(state, { type: 'SET_DEPENDENCY', fromIndex: 4, toIndex: 1 });
+
+    const solved = solve(state);
+    expect(solved.dependency).toEqual({ fromIndex: 4, toIndex: 1 });
+    expect(evaluate(solved).value).toBe(1);
   });
 });

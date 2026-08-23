@@ -29,6 +29,12 @@ export interface MultiHeadDetectiveConfig {
   searchAllLayers?: boolean;
   attempts?: number;
   allowUserSentence?: boolean;
+  /**
+   * The token pair the worked solution probes when the player has not chosen
+   * one — a real long-range dependency in this level's own sentence, by token
+   * index. Content, so it lives in the level JSON.
+   */
+  solutionDependency?: { fromIndex: number; toIndex: number };
 }
 
 export interface HeadProfile {
@@ -301,6 +307,64 @@ export function applyAction(
 
     case 'SUBMIT':
       return { ...state, status: 'complete', actionCount: state.actionCount + 1 };
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The heads this level's own attention really singles out.
+ *
+ * Every behaviour label in state was measured from the head's own attention
+ * matrix, so nominating and classifying is a matter of reading them back. The
+ * dependency hunt is a search over every head in every layer for the strongest
+ * link between the two tokens — the same search the level scores against.
+ */
+export function solve(state: MultiHeadDetectiveState): MultiHeadDetectiveState {
+  switch (state.mode) {
+    case 'find-behaviour': {
+      const head = state.targetHeads[0];
+      if (head === undefined) return state;
+      let next = state;
+      state.nominations.forEach((_, roundIndex) => {
+        next = applyAction(next, { type: 'NOMINATE_HEAD', roundIndex, head });
+      });
+      return next;
+    }
+
+    case 'classify-all': {
+      let next = state;
+      state.heads.forEach((head) => {
+        next = applyAction(next, {
+          type: 'LABEL_HEAD',
+          head: head.head,
+          behaviour: head.behaviour,
+        });
+      });
+      return next;
+    }
+
+    case 'hunt-dependency': {
+      const pair = state.dependency ?? state.config.solutionDependency;
+      if (!pair) return state;
+
+      let next = state.dependency
+        ? state
+        : applyAction(state, {
+            type: 'SET_DEPENDENCY',
+            fromIndex: pair.fromIndex,
+            toIndex: pair.toIndex,
+          });
+
+      const layers = state.config.searchAllLayers
+        ? state.result.attention.map((_, index) => index)
+        : [state.layer];
+      const best = bestDependencyAcross(state.result, pair.fromIndex, pair.toIndex, layers);
+
+      return applyAction(next, { type: 'PROBE_HEAD', layer: best.layer, head: best.head });
+    }
   }
 }
 
