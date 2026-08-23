@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type ClusterPlacementConfig,
 } from '@/engines/clusterPlacementEngine';
 import type { Embedder } from '@/engines/deps';
@@ -414,5 +415,88 @@ describe('clusterPlacementEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+/**
+ * The worked solution's autofill.
+ *
+ * Every level is checked against its own real config from the chapter JSON —
+ * the same standard the hints are held to, except this one is enforced rather
+ * than hand-verified: if a level's thresholds ever move, or the layout `solve`
+ * builds stops separating clusters as well as it does now, these fail.
+ */
+describe('clusterPlacementEngine — solve', () => {
+  it('clears place-and-cluster by grouping each real cluster tightly', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+    const result = evaluate(solved);
+
+    expect(result.passed).toBe(true);
+    expect(result.stars).toBe(3);
+    // Nothing is left in the tray — a partial layout is pro-rated down.
+    expect(solved.items.every((i) => i.placedX !== null && i.placedY !== null)).toBe(true);
+  });
+
+  it('separates the groups rather than stacking every word on one point', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+
+    const byCluster = new Map<number, { x: number; y: number }[]>();
+    for (const item of solved.items) {
+      const bucket = byCluster.get(item.trueCluster) ?? [];
+      bucket.push({ x: item.placedX!, y: item.placedY! });
+      byCluster.set(item.trueCluster, bucket);
+    }
+    // Words within a group keep distinct coordinates, so the filled board is
+    // still readable as words rather than one pile.
+    for (const points of byCluster.values()) {
+      const distinct = new Set(points.map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`));
+      expect(distinct.size).toBe(points.length);
+    }
+  });
+
+  it('clears guess-the-label using the label truth derived from the model', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+    const result = evaluate(solved);
+
+    expect(result.passed).toBe(true);
+    expect(result.stars).toBe(3);
+    for (const item of solved.items) {
+      expect(item.assignedLabel).toBe(solved.labelTruth[item.trueCluster]);
+    }
+  });
+
+  it('clears drag-vector-magnitude with each word’s real L2 norm', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(2), prepared));
+    const result = evaluate(solved);
+
+    expect(result.passed).toBe(true);
+    expect(result.stars).toBe(3);
+    for (const item of solved.items) {
+      expect(item.magnitudeGuess).toBeCloseTo(item.trueMagnitude, 10);
+    }
+  });
+
+  it('fills in words the player added themselves, not just the configured ones', async () => {
+    // Level 3 lets the player embed any word; a solution that ignored those
+    // would score them as unanswered rounds and could fail its own level.
+    const config = configFor(2);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const extra = await prepare({ ...config, words: ['zebra'] }, { embedder: fakeEmbedder });
+    const withExtra = applyAction(initState(config, rulesFor(2), prepared), {
+      type: 'ADD_ITEM',
+      item: extra.items[0]!,
+    });
+
+    const solved = solve(withExtra);
+    expect(solved.items).toHaveLength(config.words.length + 1);
+    expect(evaluate(solved).passed).toBe(true);
   });
 });

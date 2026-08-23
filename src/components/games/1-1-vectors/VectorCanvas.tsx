@@ -18,6 +18,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type ClusterItem,
   type ClusterPlacementConfig,
   type ClusterPlacementState,
@@ -26,6 +27,7 @@ import { embeddingModel, EMBEDDING_MODEL_ID } from '@/models/embeddingModel';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Slider, cx } from '@/components/ui';
 import { usePointerDrag } from '../usePointerDrag';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -93,6 +95,17 @@ function Board({
 
   // The HUD tracks the score live, so every placement updates it.
   useEffect(() => onScore(evaluate(state)), [state, onScore]);
+
+  // The solution modal's autofill: lay the board out the way this level's own
+  // real data says is right, then submit it, so the fill is visibly the answer
+  // rather than an invisible jump to a pass.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const place = useCallback(
     (id: string, x: number, y: number) => setState(applyAction(state, { type: 'PLACE', id, x, y })),

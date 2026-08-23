@@ -241,6 +241,91 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The board this level's own data says is right, played out through the
+ * ordinary actions.
+ *
+ * Everything here is read out of the state the real model produced —
+ * `trueCluster`, `labelTruth`, `trueMagnitude` — never from an answer written
+ * into the level JSON. That is the same rule the chapter itself is built on
+ * (there is no answer key), and it is what makes the autofill correct for
+ * whatever the model actually did on this device rather than for whatever it
+ * did on the machine the level was authored on.
+ */
+export function solve(state: ClusterPlacementState): ClusterPlacementState {
+  switch (state.mode) {
+    case 'place-and-cluster':
+      return solvePlacement(state);
+    case 'guess-the-label':
+      return solveLabels(state);
+    case 'drag-vector-magnitude':
+      return solveMagnitude(state);
+  }
+}
+
+/**
+ * One tight ring of words per real cluster, the rings themselves spread evenly
+ * around the canvas. Scoring is a silhouette over the player's own layout, so
+ * what it rewards is exactly this shape: near-zero distance inside a group
+ * against a large distance between groups. The words are ringed rather than
+ * stacked on one point so the filled board is still readable — a group of
+ * identical coordinates would score a hair higher and teach nothing.
+ */
+function solvePlacement(state: ClusterPlacementState): ClusterPlacementState {
+  const { width, height } = state.config.canvas;
+  const centreX = width / 2;
+  const centreY = height / 2;
+  const span = Math.min(width, height);
+  const ring = span * 0.34;
+  const spread = span * 0.05;
+
+  const clusters = [...new Set(state.items.map((i) => i.trueCluster))].sort((a, b) => a - b);
+  const membersSeen = new Map<number, number>();
+
+  let next = state;
+  for (const item of state.items) {
+    const clusterIndex = clusters.indexOf(item.trueCluster);
+    const members = state.items.filter((i) => i.trueCluster === item.trueCluster).length;
+    const seen = membersSeen.get(item.trueCluster) ?? 0;
+    membersSeen.set(item.trueCluster, seen + 1);
+
+    const clusterAngle = (2 * Math.PI * clusterIndex) / Math.max(1, clusters.length);
+    const groupX = centreX + (clusters.length > 1 ? ring * Math.cos(clusterAngle) : 0);
+    const groupY = centreY + (clusters.length > 1 ? ring * Math.sin(clusterAngle) : 0);
+
+    const memberAngle = (2 * Math.PI * seen) / Math.max(1, members);
+    const x = members > 1 ? groupX + spread * Math.cos(memberAngle) : groupX;
+    const y = members > 1 ? groupY + spread * Math.sin(memberAngle) : groupY;
+
+    next = applyAction(next, { type: 'PLACE', id: item.id, x, y });
+  }
+  return next;
+}
+
+/** Each cluster takes the label whose own embedding landed nearest its centroid. */
+function solveLabels(state: ClusterPlacementState): ClusterPlacementState {
+  let next = state;
+  for (const item of state.items) {
+    const label = state.labelTruth[item.trueCluster];
+    if (label === undefined) continue;
+    next = applyAction(next, { type: 'ASSIGN_LABEL', id: item.id, label });
+  }
+  return next;
+}
+
+/** The exact L2 norm of each word's real vector — a zero-error guess. */
+function solveMagnitude(state: ClusterPlacementState): ClusterPlacementState {
+  let next = state;
+  for (const item of state.items) {
+    next = applyAction(next, { type: 'GUESS_MAGNITUDE', id: item.id, value: item.trueMagnitude });
+  }
+  return next;
+}
+
 export function evaluate(state: ClusterPlacementState): ScoreResult {
   switch (state.mode) {
     case 'place-and-cluster':

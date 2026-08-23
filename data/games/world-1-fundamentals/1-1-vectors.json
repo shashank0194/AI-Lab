@@ -47,7 +47,30 @@
         "Ignore what the words mean to you personally and think about what kind of thing each one is — the model groups by how words get used, not by a dictionary definition. There are two natural groups hiding in this list.",
         "Cat, dog and hamster are animals; truck, bus and bicycle are vehicles. Put the three animal words in one region of the canvas and the three vehicle words in a clearly separate region.",
         "Drag cat, dog and hamster into a tight cluster on one side, and truck, bus and bicycle into a tight cluster on the other side, with real empty space between the two groups. The exact coordinates don't matter, only that the two groups are visibly separated."
-      ]
+      ],
+      "solution": {
+        "problem": "Nothing here is graded against a stored answer key. The model embedded all six words, k-means grouped those real vectors, and your layout is then scored by a silhouette: for every word, how far it landed from the words in its own real group, against how far it landed from the nearest other group. So the level is not asking 'where does cat go' — it is asking whether the structure the model found is legible enough that you can reproduce it with your hands.",
+        "steps": [
+          {
+            "title": "Find the two groups the model actually found",
+            "body": "Read the list as things rather than as words: cat, dog and hamster are animals; truck, bus and bicycle are vehicles. Nothing told the model that. It has never seen a category label. Those two groups exist in the embedding space because training text uses 'cat' and 'hamster' in the same slots — 'my ___ is asleep', 'feed the ___' — and uses 'truck' and 'bus' in a different set of slots. Usage became position, and position is what k-means is grouping."
+          },
+          {
+            "title": "Two tight groups, with real space between them",
+            "body": "Silhouette compares within-group distance to between-group distance, so what earns points is contrast, not any particular coordinate. Six words scattered at random across the field score 0.48 — below the 0.55 pass mark — because a random layout makes those two distances the same. The same six words as two tight groups on opposite sides of the field score 0.94 and three stars. Sliding the whole layout left, or swapping which side each group sits on, changes nothing: only the relative distances are read."
+          },
+          {
+            "title": "Place every word, not just the obvious ones",
+            "body": "The score is multiplied by how much of the set you actually placed. Place four words in two flawless groups and leave two in the tray and the silhouette is a perfect 1.0, but the final score is 1.0 × 4/6 = 0.67 — a one-star pass. Two words left in the tray cost more than a slightly sloppy layout does."
+          },
+          {
+            "title": "Know what a near miss costs",
+            "body": "Drop hamster into the vehicle group and keep everything else right: 0.73, two stars — one word in the wrong group pulls the average down but does not fail you. Put the groups in the right shape but only slightly apart, with the gap no bigger than the spread inside each group: 0.78, also two stars. Three stars needs 0.88, which in practice means the gap between the groups has to be several times the spread within them."
+          }
+        ],
+        "answer": "Drag cat, dog and hamster into one tight cluster and truck, bus and bicycle into another, on opposite sides of the field, with clear empty space between them. Autofill does exactly this — it reads each word's real cluster out of the model's own output and arranges each group as a small readable ring around its own centre, which scores about 0.94 and three stars.",
+        "takeaway": "This is the whole reason embeddings are useful. The model stores no categories, yet 'animal' and 'vehicle' are recoverable as regions of space, which is why a classifier stacked on top of embeddings can be almost trivially simple: the hard work of separating the categories was already done by the geometry."
+      }
     },
     {
       "id": "1-1-l2",
@@ -87,7 +110,26 @@
         "The three groups are already sitting at their real positions — you just need to name each one. Look at which points cluster near each other rather than reading the word list in order.",
         "Violin, trumpet and cello are instruments; hydrogen, oxygen and nitrogen are elements; lasagna, risotto and paella are food — the model clusters them by real-world category even though it was never told about categories.",
         "Assign 'instruments' to the violin/trumpet/cello cluster, 'elements' to the hydrogen/oxygen/nitrogen cluster, and 'food' to the lasagna/risotto/paella cluster."
-      ]
+      ],
+      "solution": {
+        "problem": "The points are already at their real projected positions, so the grouping is not yours to make this time — the naming is. Ground truth is not stored anywhere either: the three candidate labels are embedded by the same model, and each cluster is assigned the label whose own vector sits closest to that cluster's centroid, resolved greedily by similarity so two clusters can never claim the same label.",
+        "steps": [
+          {
+            "title": "Read the plot, not the word list",
+            "body": "The nine words arrive in a tidy order — three instruments, three elements, three foods — but the plot is what carries the answer, and the clusters are wherever the model put them. Look at which points sit near each other: violin, trumpet and cello land together, hydrogen, oxygen and nitrogen land together, and lasagna, risotto and paella land together."
+          },
+          {
+            "title": "Understand where the 'right' label comes from",
+            "body": "The word 'instruments' is run through the same embedder as 'violin'. Its vector lands nearer the centroid of the violin/trumpet/cello cluster than it does to either of the other two centroids, so that cluster's true label is 'instruments'. This is a real zero-shot classification, done live: no lookup table maps 'cello' to a category, only cosine similarity between a label's vector and a group's average vector."
+          },
+          {
+            "title": "Assign all nine, because the metric is per word",
+            "body": "The score is labelAccuracy — correctly labelled words over nine — and unlabelled words count as wrong. Getting one group's name wrong still leaves six of nine correct: 0.67, which scrapes past the 0.66 pass mark at one star. Swapping two labels outright is twice as expensive, because it makes both of those groups wrong at once — three of nine, 0.33, a fail. Three stars needs 0.99, which with nine words means all nine correct and nothing left blank."
+          }
+        ],
+        "answer": "Label violin, trumpet and cello 'instruments'; hydrogen, oxygen and nitrogen 'elements'; lasagna, risotto and paella 'food'. Autofill assigns every word the label the model's own centroid comparison chose for its cluster, giving 9/9 and three stars.",
+        "takeaway": "Comparing a label's embedding to a cluster's centroid is not a toy version of classification — it is exactly how zero-shot classifiers work in production. Add a fourth candidate label and the same machinery would place it, with no retraining, because the label and the data live in one shared space."
+      }
     },
     {
       "id": "1-1-l3",
@@ -119,7 +161,26 @@
         "Every sentence-embedding model normalises its output to roughly the same length, so most words land in a fairly narrow magnitude band — don't guess wildly high or low regardless of the word.",
         "This chapter's embedder outputs unit-length vectors, so almost every word's true magnitude sits extremely close to 1.0 — the word you type barely changes it.",
         "Set the slider to 1.0 for any word — this embedder normalises every vector to unit length, so magnitude ≈ 1.0 is correct essentially regardless of what you typed."
-      ]
+      ],
+      "solution": {
+        "problem": "A vector has a direction and a length, and this level asks which of the two carries the meaning. Your slider guess is scored against the real L2 norm the model produces for that word, with relative error measured against a 0.35 tolerance band — so being 10% off is worth partial credit, being 50% off is worth nothing.",
+        "steps": [
+          {
+            "title": "Guess the length, not the importance",
+            "body": "The instinct is that a rare, heavy word like 'quantum' should produce a bigger vector than a function word like 'the'. Test that instinct: this chapter's embedder is a sentence-transformer that L2-normalises its output, so every vector it emits is scaled to unit length before you ever see it. 'the', 'ocean' and 'quantum' all come back at essentially exactly 1.0."
+          },
+          {
+            "title": "Do the tolerance arithmetic before you drag",
+            "body": "Each word scores 1 − (relative error ÷ 0.35). A guess of 1.0 against a true 1.0 is zero error and scores a full 1.0. Guess 1.1 and you are 10% off: 1 − 0.10/0.35 = 0.71, which is two stars. Guess 1.2 and you are 20% off: 0.43, which is below the 0.5 pass mark. Guess 1.5 and you score zero for that word. The band is unforgiving in absolute terms precisely because the true answer is so predictable."
+          },
+          {
+            "title": "Rate every word on the board, including ones you added",
+            "body": "The final score divides by the number of words, not by the number you answered, so a word left at an unmoved slider is not skipped — it is averaged in as a zero. Rate two of the three perfectly and leave the third untouched and the score is 0.67, a one-star pass. Embed your own word to watch the normalisation hold for anything you type, but then set its slider too, or it drags the mean down with it."
+          }
+        ],
+        "answer": "Set every slider to 1.0, whatever the word. Autofill sets each word's slider to that word's real measured norm, which for this embedder is 1.0 to several decimal places, scoring three stars.",
+        "takeaway": "Unit-length vectors are the reason the next chapters can be casual about which similarity measure they use: on normalised vectors, cosine similarity is just the dot product, and Euclidean distance is a strictly decreasing function of cosine. Chapter 1.3 runs straight into the consequence of that — with normalised vectors, cosine and Euclidean can never disagree about which of two words is closer."
+      }
     }
   ]
 }
