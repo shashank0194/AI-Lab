@@ -102,14 +102,13 @@
       },
       "starsRules": [
         { "threshold": 0.4, "stars": 1 },
-        { "threshold": 0.6, "stars": 2 },
-        { "threshold": 0.8, "stars": 3 }
+        { "threshold": 0.65, "stars": 3 }
       ],
       "xpReward": 45,
       "hints": [
         "This reuses 7.3's discovery: the real model picks whichever tool you demonstrated last, almost regardless of the instruction. Put the tool that actually fits last.",
         "The lookup tool is checked against the same real fact corpus 7.1 and 7.2 used — its results are real bundled facts, not invented ones, and the calculator really evaluates your expression.",
-        "Checked directly: the lookup half of this level is very reliable once the right tool is picked. The calculator half is real but noisier — verified live, one full run reached 4 of these 6 instructions correct end to end. Real, sometimes-imperfect small-model behaviour, not a bug to route around."
+        "Measured in a real browser with each instruction's own tool listed last: 4 of 6 complete correctly end to end, which is the three-star band. The two failures both break before the tool even runs — 'What is 84 minus 19?' asks for a tool called \"math\", which does not exist, and 'How deep is the Mariana Trench?' produces no parseable call at all. Every round that did produce a call went on to answer correctly."
       ],
       "solution": {
         "problem": "Six instructions and two real tools: a calculator that genuinely evaluates arithmetic, and a lookup that genuinely searches the same bundled fact corpus World 7.1 and 7.2 used. A round only counts if the model picks the right tool *and* the final answer it states contains the real answer. Your lever is the same one the last chapter uncovered — which tool is listed and demonstrated last.",
@@ -124,15 +123,15 @@
           },
           {
             "title": "Watch the two halves behave differently",
-            "body": "The lookup half is the easier one: the tool hands back a short fact and the model mostly repeats it. The calculator half has to survive the same two-decode circuit as level 1 — emit a valid expression, then restate a number it has just been given."
+            "body": "Measured in a real browser, 4 of 6 complete end to end — and every round that produced a parseable call went on to answer correctly. Lookup rounds restate what the tool handed back ('828 meters', '21,196 kilometers'); calculator rounds restate the computed number (66, 500). The pipeline after the call is not where this level loses rounds."
           },
           {
-            "title": "Run all six and read the failures honestly",
-            "body": "Some rounds will be wrong, and it is worth looking at which stage broke in each: the picked tool, the tool result, and the final answer are all shown separately underneath each round for exactly that reason."
+            "title": "Read the two failures — both happen before the tool runs",
+            "body": "'What is 84 minus 19?' asks for a tool named \"math\". There is no such tool; the model invented a plausible name and the call could not be dispatched. 'How deep is the Mariana Trench?' produces no parseable call at all. Neither is a reasoning failure about which tool fits — they are failures to emit a well-formed call, which is why the picked tool, the tool result and the final answer are shown separately under each round."
           }
         ],
-        "answer": "Put each instruction's own tool last — calculator for the arithmetic ones, lookup for the factual ones — and run all six. Autofill sets each round's ordering that way and runs the six real hops, scoring whatever the model and the real tools actually produced.",
-        "takeaway": "Routing accuracy and end-to-end accuracy are different numbers, and only the second one matters to the person asking the question. An agent that picks the right tool, gets the right result, and then misreports it has failed just as completely as one that never called the tool at all."
+        "answer": "Put each instruction's own tool last — calculator for the arithmetic ones, lookup for the factual ones — and run all six. Measured in a real browser that completes 4 of 6, which is the three-star band: the star bands here are set to what this lever actually reaches on this model, not to a perfect score it cannot produce. Autofill sets each round's ordering that way and runs the six real hops, scoring whatever the model and the real tools actually produced — including the rounds it gets wrong.",
+        "takeaway": "Routing accuracy and end-to-end accuracy are different numbers, and only the second one matters to the person asking the question. Note where the two failures here actually happened: not in choosing between tools, but in naming one that exists and emitting a call at all. A tool-calling agent fails at the boring, mechanical joints far more often than at the interesting decision — which is why the joints are where the engineering goes."
       }
     },
     {
