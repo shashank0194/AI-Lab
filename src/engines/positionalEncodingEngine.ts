@@ -317,6 +317,77 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this level's own encoding produces.
+ *
+ * Positions and divergences are already measured in state — one from the real
+ * sinusoidal signature, the other from really embedding both sentences with and
+ * without position added. The distinctness level is a search, because "which
+ * width and which base" is the question it asks, and the answer is a property
+ * of the formula rather than of anything stored.
+ */
+export function solve(state: PositionalEncodingState): PositionalEncodingState {
+  switch (state.mode) {
+    case 'identify-position': {
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'ANSWER_POSITION',
+          roundIndex,
+          value: round.truePosition,
+        });
+      });
+      return next;
+    }
+
+    case 'tune-distinctness': {
+      const widths = state.config.dModelOptions ?? [state.dModel];
+      const [baseMin, baseMax] = state.config.baseRange ?? [state.base, state.base];
+      const bases: number[] = [];
+      for (const base of [10, 50, 100, 500, 1000, 5000, 10000, 50000, 100000]) {
+        if (base >= baseMin && base <= baseMax) bases.push(base);
+      }
+      // A geometric fill between the round bases, so the winner is not an
+      // artefact of which round numbers happened to be listed.
+      for (let i = 0; i <= 24; i++) {
+        const base = Math.round(baseMin * (baseMax / baseMin) ** (i / 24));
+        if (!bases.includes(base)) bases.push(base);
+      }
+
+      let best: PositionalEncodingState | null = null;
+      let bestValue = -Infinity;
+      for (const dModel of widths) {
+        for (const base of bases) {
+          let candidate = applyAction(state, { type: 'SET_D_MODEL', value: dModel });
+          candidate = applyAction(candidate, { type: 'SET_BASE', value: base });
+          const value = evaluate(candidate).value;
+          if (Number.isFinite(value) && value > bestValue) {
+            best = candidate;
+            bestValue = value;
+          }
+        }
+      }
+      return best ?? state;
+    }
+
+    case 'combine-with-embeddings': {
+      let next = state;
+      state.pairs.forEach((pair, pairIndex) => {
+        next = applyAction(next, {
+          type: 'ESTIMATE_DIVERGENCE',
+          pairIndex,
+          value: pair.trueDivergence,
+        });
+      });
+      return next;
+    }
+  }
+}
+
 export function evaluate(state: PositionalEncodingState): ScoreResult {
   switch (state.mode) {
     case 'identify-position': {

@@ -49,7 +49,30 @@
         "Compare the mystery stripe against the candidate rows highlighted in the reference heatmap below it — this is a matching task, not something to compute by hand.",
         "Low dimensions (the left side of the stripe) oscillate fastest, so they're the most sensitive to small position changes. High dimensions on the right barely change between neighbouring positions, which is why nearby positions are so easy to confuse and distant ones aren't.",
         "For this seed, the six rounds' real positions in order are 23, 5, 25, 26, 13, 15 — matched by comparing the fast-oscillating left dimensions first, since they disambiguate nearby candidates fastest."
-      ]
+      ],
+      "solution": {
+        "problem": "Attention has no notion of order on its own — it sees a set of vectors, not a sequence — so position has to be added to the input as a signal. This level shows you the real sinusoidal encoding for one position out of 32 and asks which position it is, from four candidates, six times.",
+        "steps": [
+          {
+            "title": "Understand what you are looking at",
+            "body": "Each position gets a vector whose dimensions are sines and cosines of the position divided by geometrically increasing wavelengths. The leftmost dimensions oscillate fast — they change completely between neighbouring positions — and the rightmost ones oscillate so slowly they barely move across the whole sequence."
+          },
+          {
+            "title": "Read the fast dimensions first",
+            "body": "That layout is what makes the puzzle tractable. The slow right-hand dimensions tell you roughly which region of the sequence you are in; the fast left-hand ones separate positions that are close together. Comparing candidates on the left-hand dimensions disambiguates neighbours fastest, so start there rather than trying to match the whole vector at once."
+          },
+          {
+            "title": "Use the candidates against each other",
+            "body": "You are choosing between four options, not identifying a position blind. Line the four candidate signatures up and look for the dimension where they differ most — that single dimension usually settles it."
+          },
+          {
+            "title": "Know the six answers for this seed",
+            "body": "The rounds are generated from a fixed seed, so the real positions are 23, 5, 25, 26, 13 and 15. Note that rounds 3 and 4 are adjacent positions — 25 and 26 — which is exactly the case the fast dimensions exist to separate."
+          }
+        ],
+        "answer": "In order: 23, 5, 25, 26, 13, 15. Autofill answers each round with the position the real encoding belongs to, for 6/6 and three stars.",
+        "takeaway": "Position is not a special mechanism in a transformer, it is just more numbers added to the input. That is what makes it so flexible — and why alternatives like learned, relative and rotary embeddings can be swapped in without touching attention itself."
+      }
     },
     {
       "id": "5-1-l2",
@@ -81,7 +104,30 @@
         "Push the base as low as it goes first, then raise the dimension count — a small base is what lets extra dimensions carry genuinely different frequencies instead of all crawling at nearly the same rate.",
         "More dimensions isn't free: at base 100000, 128 dimensions actually scores worse than 4 (0.294 vs 0.509) because most of them oscillate too slowly to vary at all over 64 positions and just add redundant, near-identical columns. At base 10, 128 dimensions beats 4 by a wide margin (0.848 vs 0.610) because every one of them now carries a genuinely different frequency.",
         "dModel = 64 with base = 10 (the range's own minimum) measures 0.8495 — just past the 3-star line. That's a real ceiling for this maxPosition, not an arbitrary round number: 128 dimensions at base 10 actually measures very slightly lower, 0.8480."
-      ]
+      ],
+      "solution": {
+        "problem": "Two dials — the encoding width and the base of the geometric wavelength series — and one measurement: how distinct the 64 positions are from each other, averaged over every pair. The level starts at width 4 with base 100,000, which measures 0.509 and fails the 0.55 pass mark.",
+        "steps": [
+          {
+            "title": "See why width matters",
+            "body": "Each pair of dimensions is one sine/cosine at one wavelength. Four dimensions is two wavelengths, which is simply not enough distinct clocks to give 64 positions distinct readings — many positions end up with near-identical vectors. Measured at base 10: width 4 gives 0.610, width 16 gives 0.813, width 32 gives 0.846."
+          },
+          {
+            "title": "See why the base matters more than you would think",
+            "body": "The base sets how quickly wavelengths stretch out across the dimensions. A huge base means most dimensions oscillate very slowly, so across only 64 positions they barely move and carry almost no information. Measured at width 64: base 100,000 gives 0.301, base 10,000 gives 0.373, base 100 gives 0.722, and base 10 gives 0.849. The base is worth more here than the width."
+          },
+          {
+            "title": "Notice where it plateaus",
+            "body": "Width 64 at base 10 measures 0.8495, and width 128 at the same base measures 0.8480 — very slightly *lower*. This is a real ceiling for 64 positions, not a round number chosen for neatness: past a point, extra dimensions add wavelengths too slow to distinguish anything in this range."
+          },
+          {
+            "title": "Connect it to the default that ships in real models",
+            "body": "The original transformer uses base 10,000 with width 512, which looks wrong by this level's measurement. It is not — it is tuned for sequences of hundreds or thousands of positions, where those slow wavelengths finally have room to move. Over only 64 positions, the same setting wastes most of its dimensions."
+          }
+        ],
+        "answer": "Width 64 with base 10, the minimum of its range — distinctness 0.8495, three stars. Autofill sweeps every width the level offers against a fine sweep of bases and keeps that pair.",
+        "takeaway": "Positional encoding has hyperparameters, and their right values depend on how long your sequences actually are. This is one of the reasons context-length extension is hard: the encoding that was tuned for 2,000 positions does not automatically behave at 100,000."
+      }
     },
     {
       "id": "5-1-l3",
@@ -118,7 +164,30 @@
         "All three real divergences are small — none reach even 0.09 — because only one word moves in each pair and cosine similarity is bounded. Guessing the same middling number for all three gets you close in aggregate but won't separate the pairs from each other.",
         "The size of the divergence tracks how far the moved word travels, not the sentence's meaning: \"only\" shifting by a single slot changes much less than \"dog\"/\"man\" swapping across the whole clause. Raising the scale slider past ~1 barely moves any of the numbers further — the effect saturates quickly.",
         "At the default scale (1): \"the dog bit the man\" vs \"the man bit the dog\" diverges about 0.086 (the biggest jump — a 3-position move); \"only she told him that\" vs \"she told only him that\" about 0.025 (the smallest — a 1-position move); \"rain before sunset\" vs \"sunset before rain\" about 0.047."
-      ]
+      ],
+      "solution": {
+        "problem": "Three sentence pairs that use the same words in a different order. Each pair is embedded twice — once with positional encoding added and once without — and you estimate how far apart the two orderings end up. The score is your mean absolute error against the real divergence, with three stars inside 0.008.",
+        "steps": [
+          {
+            "title": "Realise how small these numbers are",
+            "body": "The positional signal is added to embeddings that already carry the words' meanings, and the words in each pair are identical. So the divergence between the two orderings is small in absolute terms — hundredths, not tenths. The three-star band of 0.008 is calibrated to that scale, which is why the first instinct of guessing something like 0.5 fails badly."
+          },
+          {
+            "title": "Rank the pairs before estimating them",
+            "body": "How far apart two orderings land depends on how far the words actually moved. 'The dog bit the man' versus 'the man bit the dog' swaps two words across three positions — the biggest move, and the biggest divergence at about 0.086. 'Only she told him that' versus 'she told only him that' moves one word one position, the smallest, at about 0.025. 'Rain before sunset' versus 'sunset before rain' sits between them at about 0.047."
+          },
+          {
+            "title": "Note what this proves",
+            "body": "Without positional encoding, these pairs would be *identical* to the model — same bag of words, same sum. The divergence being non-zero is the entire justification for the mechanism, and the fact that it scales with how far words moved is evidence that the encoding is carrying real order information rather than just noise."
+          },
+          {
+            "title": "Watch the scale dial",
+            "body": "The scale slider multiplies the positional signal before it is added. At scale 0 the divergence is exactly zero for every pair — word order stops existing. Turning it up increases divergence but starts to swamp the word meanings themselves, which is the trade-off real implementations manage by scaling the token embeddings up instead."
+          }
+        ],
+        "answer": "Estimate about 0.086, 0.025 and 0.047 for the three pairs in order. Autofill enters the divergence each pair really produces on this device, for an error of 0 and three stars.",
+        "takeaway": "Word order enters a transformer as a small numerical perturbation of the input, not as a structural feature. It is remarkable that so much syntax can ride on so little signal — and it is why models can be surprisingly weak at tasks that depend on exact ordering."
+      }
     }
   ]
 }

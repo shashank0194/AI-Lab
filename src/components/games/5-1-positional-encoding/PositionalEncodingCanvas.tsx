@@ -17,6 +17,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   positionalVector,
   encodingDistinctness,
   type PositionalEncodingAction,
@@ -27,6 +28,7 @@ import { embeddingModel, EMBEDDING_MODEL_ID } from '@/models/embeddingModel';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Slider, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -64,7 +66,15 @@ export function PositionalEncodingCanvas({ game, level, onScore, onSubmit }: Gam
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
+      )}
     </ModelGate>
   );
 }
@@ -72,11 +82,14 @@ export function PositionalEncodingCanvas({ game, level, onScore, onSubmit }: Gam
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: PositionalEncodingState;
   dispatch: (action: PositionalEncodingAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: PositionalEncodingState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -92,6 +105,18 @@ function Board({
   }, [dispatch]);
 
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the real position behind each signature, the
+  // width and base that measurably keep positions most distinct, or the
+  // divergence really produced by embedding both orderings.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

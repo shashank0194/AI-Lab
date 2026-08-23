@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   positionalVector,
   encodingDistinctness,
   combineWithPositions,
@@ -275,5 +276,53 @@ describe('positionalEncodingEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('positionalEncodingEngine — solve', () => {
+  it('names the real position behind every signature', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+
+    for (const round of solved.rounds) expect(round.answer).toBe(round.truePosition);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('widens the encoding and shrinks the base to keep positions distinct', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const base = initState(config, rulesFor(1), prepared);
+    const solved = solve(base);
+
+    expect(evaluate(base).passed).toBe(false);
+    expect(solved.dModel).toBeGreaterThan(config.dModel);
+    expect(solved.base).toBeLessThan(config.base);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('does not just take the widest encoding on offer', async () => {
+    // Distinctness plateaus: the widest option measures fractionally lower
+    // than the one below it, so "bigger is better" is the wrong rule here.
+    const config = configFor(1);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+    const widest = Math.max(...config.dModelOptions!);
+
+    if (solved.dModel !== widest) {
+      let alternative = applyAction(solved, { type: 'SET_D_MODEL', value: widest });
+      alternative = applyAction(alternative, { type: 'SET_BASE', value: solved.base });
+      expect(evaluate(alternative).value).toBeLessThanOrEqual(evaluate(solved).value);
+    }
+  });
+
+  it('answers each sentence pair with the divergence really measured', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(2), prepared));
+
+    for (const pair of solved.pairs) expect(pair.estimate).toBe(pair.trueDivergence);
+    expect(evaluate(solved).value).toBe(0);
+    expect(evaluate(solved).stars).toBe(3);
   });
 });
