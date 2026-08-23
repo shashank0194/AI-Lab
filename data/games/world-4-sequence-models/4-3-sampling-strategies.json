@@ -49,7 +49,30 @@
         "The default temperature of 1 leaves the distribution far too flat for the target — you need to sharpen it, which means moving the slider down, not up.",
         "Entropy falls smoothly as temperature drops, so this is a one-directional search: watch the readout and walk the slider down until it enters the shaded band, then fine-tune from there.",
         "Verified against the real model for this exact prompt: temperature 0.45 reshapes the distribution to 2.39 bits of entropy against a target of 2.40 — an error of 0.009, comfortably inside the 0.05 band for 3 stars."
-      ]
+      ],
+      "solution": {
+        "problem": "One real next-token distribution from the model, and one dial: temperature. Temperature divides the logits before the softmax, so below 1 it sharpens the distribution and above 1 it flattens it. The score is how close you get the reshaped distribution's entropy to a target of 2.40 bits, with three stars inside 0.05.",
+        "steps": [
+          {
+            "title": "Read the starting point",
+            "body": "At the default temperature of 1 this prompt's top-20 distribution carries about 3.5 bits of entropy — well above the 2.40 target. That tells you the direction immediately: you need less spread, which means a temperature below 1."
+          },
+          {
+            "title": "Know which way each direction goes",
+            "body": "Temperature 2 flattens the distribution further, to roughly 4.1 bits — every candidate becomes more equally likely. Temperature 0.5 sharpens it to about 2.5 bits. The relationship is smooth and monotonic, so this is a one-directional search rather than a hunt: walk the slider down and watch the readout fall."
+          },
+          {
+            "title": "Fine-tune inside the band",
+            "body": "Temperature 0.5 gives about 2.53 bits — an error of 0.13, which is only one star. Temperature 0.45 gives 2.39 bits, an error of 0.009 and three stars. The last tenth of a temperature step is worth two stars here, which is a fair reflection of how sensitive sampling behaviour is to this parameter in practice."
+          },
+          {
+            "title": "Keep in mind what entropy is measuring",
+            "body": "2.4 bits means the model's choice is about as uncertain as picking evenly between five or six options. That is a deliberate middle ground: sharp enough to stay coherent, loose enough not to be deterministic. Naming a target in bits rather than in temperature is the honest way to specify it, because the temperature that produces it depends on the prompt."
+          }
+        ],
+        "answer": "Temperature ≈ 0.45 — about 2.39 bits against a target of 2.40, an error of 0.009 and three stars. Autofill sweeps the level's own temperature range against this device's real distribution and keeps the closest.",
+        "takeaway": "Temperature is not a creativity knob, it is an entropy knob, and entropy is the thing you actually care about. The same temperature applied to a confident prompt and an uncertain one produces completely different amounts of randomness — which is exactly the problem the next level is about."
+      }
     },
     {
       "id": "4-3-l2",
@@ -87,7 +110,30 @@
         "Top-p adapts to how confident the model is at this position, so one top-p value can behave on both prompts. A fixed top-k cannot — it either wastes its budget on the confident prompt or starves the uncertain one.",
         "Verified against the real model: pinning top-k to 5 or 10 (with top-p wide open) keeps a healthy 90.7% of the mass on \"the chemical symbol for gold is\" (very peaked — the model is confident it's \"Au\") but only 47.3% (k=5) or 63.9% (k=10) on \"the strangest thing I saw that day was a\" (much flatter — dozens of nouns are all plausible). That gap is the whole lesson.",
         "Verified working setting: top-p ≈ 0.7 (top-k left generous, e.g. 40) keeps 82.9% on the gold prompt — squarely inside the 75–95% band — and 70.0% on the strangest-thing prompt, just under the 75% floor but close enough for a truncationBalanceScore of 0.967, comfortably 3 stars. Nudging top-p up toward 0.75–0.8 pulls the second prompt inside the band too."
-      ]
+      ],
+      "solution": {
+        "problem": "Two prompts with very different shapes — 'The chemical symbol for gold is', where the model is confident, and 'The strangest thing I saw that day was a', where it is not — and one set of truncation settings that has to serve both. The score asks that the kept probability mass lands between 75% and 95% on each, and the worst of the two counts.",
+        "steps": [
+          {
+            "title": "See why a fixed top-k cannot do it",
+            "body": "Top-k keeps a fixed number of candidates regardless of shape. Measured on these two prompts, top-k = 5 keeps about 90% of the mass on the gold prompt — where five candidates really do cover almost everything — and only about 47% on the strangest-thing prompt, where the mass is spread across dozens of plausible words. One number cannot be right for both."
+          },
+          {
+            "title": "Understand what top-p does instead",
+            "body": "Top-p keeps however many candidates it takes to reach a mass threshold. On a sharp distribution that is two or three tokens; on a flat one it might be twenty-eight. The count adapts because the criterion is the mass, which is precisely the quantity this level scores."
+          },
+          {
+            "title": "Choose a p inside the band",
+            "body": "Top-p ≈ 0.7 with top-k left generous keeps 82.9% on the gold prompt and 70.0% on the strangest-thing prompt — inside the band on one, just under the 75% floor on the other, for a score of 0.967 and three stars. Nudging p up to about 0.75–0.8 pulls the second prompt inside the band as well, for a full 1.0."
+          },
+          {
+            "title": "Leave temperature alone here",
+            "body": "The temperature slider is live but it is not the lever this level needs: reshaping both distributions equally does not change the fact that one is sharp and one is flat. Truncation is what adapts to shape."
+          }
+        ],
+        "answer": "Top-p ≈ 0.75 with top-k left generous (40 or 50) — both prompts inside the 75–95% band, three stars. Autofill sweeps top-p finely, with top-k and temperature included so the search can confirm for itself that no fixed count does the job.",
+        "takeaway": "This is why nucleus sampling replaced top-k almost everywhere. A fixed candidate count is a fixed answer to a question whose right answer changes with every token, and the fix is to specify the criterion you actually care about — mass — and let the count follow."
+      }
     },
     {
       "id": "4-3-l3",
@@ -140,7 +186,30 @@
         "Every task starts at the same shared defaults, which is wrong for at least two of the three. Switch tasks with the tabs and look at where each one's entropy readout sits relative to its own target band before touching anything.",
         "Temperature is the control that matters here — top-k and top-p barely bind at these targets. The factual prompt needs sharpening (lower temperature) from its default; the code prompt needs the opposite, a real push upward, since its default is far too confident (nearly deterministic) for the target; the creative prompt starts closest to its target but on the high side, so it wants a small nudge down, not up.",
         "Verified against the real model, one setting per task that together score a perfect 1.0: factual at temperature 0.15 → 0.57 bits (target 0.60 ± 0.35); creative at temperature 0.90 → 3.47 bits (target 3.40 ± 0.50); code at temperature 1.50 → 1.29 bits (target 1.20 ± 0.40). Top-k and top-p can stay at their defaults for all three."
-      ]
+      ],
+      "solution": {
+        "problem": "Three jobs with genuinely different needs — a factual completion that should be nearly deterministic, a creative one that should be wide open, and a code completion in between — each with its own entropy target and tolerance. Every task keeps its own settings, and the score is the mean across all three, so one badly tuned task drags the whole thing down.",
+        "steps": [
+          {
+            "title": "Check where each task starts before changing anything",
+            "body": "All three tasks open at the same shared defaults, and those defaults are wrong for at least two of them. Switch between the tabs and read each entropy against its own band first: the factual prompt sits above its target, the code prompt is far too confident for its target, and the creative prompt starts closest, slightly on the high side."
+          },
+          {
+            "title": "Sharpen the factual task",
+            "body": "'The boiling point of water at sea level is' wants 0.6 bits — nearly deterministic, because there is one right answer and dressing it up in randomness is pure downside. Verified against the real model, temperature 0.15 gives 0.57 bits, inside the 0.35 tolerance."
+          },
+          {
+            "title": "Open up the creative task",
+            "body": "'She described the city as a' wants 3.4 bits, near the top of what this distribution can offer. Temperature 0.90 gives 3.47 bits — a small nudge down from the default rather than up, because the default was already above the target."
+          },
+          {
+            "title": "Push the code task up, not down",
+            "body": "The code prompt is the counterintuitive one. Its default is almost deterministic — the model is very sure how a fibonacci base case continues — and its target of 1.2 bits is *higher* than that. Temperature 1.50 gives 1.29 bits, inside tolerance. Top-k and top-p can stay at their defaults for all three tasks; temperature is the only control that binds at these targets."
+          }
+        ],
+        "answer": "Factual at temperature 0.15 (0.57 bits), creative at 0.90 (3.47 bits), code at 1.50 (1.29 bits) — all three inside tolerance for a perfect 1.0 and three stars. Autofill tunes each task separately against this device's own distributions, which is valid because one task's settings never affect another's score.",
+        "takeaway": "There is no such thing as a good default temperature, only a good temperature for a job. Production systems set it per endpoint for exactly this reason, and the two-order-of-magnitude difference between the factual and creative settings here is not an exaggeration of real practice."
+      }
     }
   ]
 }

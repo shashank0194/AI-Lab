@@ -283,6 +283,119 @@ export function currentReshape(state: SamplingState, promptIndex = 0): ReshapeRe
   });
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * Settings that hit this level's target, found by reshaping the real
+ * distribution at each candidate.
+ *
+ * The distributions come from real forward passes, so nothing here can be
+ * precomputed — the temperature that lands on 2.4 bits depends on the shape the
+ * model actually produced for that prompt on this device. Every candidate is
+ * scored through the level's own `evaluate`, and the per-task level is solved
+ * one task at a time, which is valid because a task's settings only affect its
+ * own term in the mean.
+ */
+export function solve(state: SamplingState): SamplingState {
+  switch (state.mode) {
+    case 'entropy-target':
+      return bestOf(state, temperatureCandidates(state));
+
+    case 'compare-truncation':
+      return bestOf(state, truncationCandidates(state));
+
+    case 'task-tuning': {
+      let next = state;
+      for (const task of state.config.tasks ?? []) {
+        const selected = applyAction(next, { type: 'SELECT_TASK', taskId: task.id });
+        next = bestOf(selected, temperatureCandidates(selected));
+      }
+      return next;
+    }
+  }
+}
+
+interface SamplingCandidate {
+  temperature: number;
+  topK?: number;
+  topP?: number;
+}
+
+/** Applies each candidate and keeps whichever the level's own metric prefers. */
+function bestOf(state: SamplingState, candidates: SamplingCandidate[]): SamplingState {
+  const comparator = state.rules.passCriteria.comparator;
+  const better = (candidate: number, incumbent: number) =>
+    comparator === 'gte' ? candidate > incumbent : candidate < incumbent;
+
+  let best: SamplingState | null = null;
+  let bestValue = 0;
+
+  for (const candidate of candidates) {
+    let run = applyAction(state, { type: 'SET_TEMPERATURE', value: candidate.temperature });
+    if (candidate.topK !== undefined) {
+      run = applyAction(run, { type: 'SET_TOP_K', value: candidate.topK });
+    }
+    if (candidate.topP !== undefined) {
+      run = applyAction(run, { type: 'SET_TOP_P', value: candidate.topP });
+    }
+
+    const value = evaluate(run).value;
+    if (!Number.isFinite(value)) continue;
+    if (best === null || better(value, bestValue)) {
+      best = run;
+      bestValue = value;
+    }
+  }
+
+  return best ?? state;
+}
+
+/** A fine sweep of the level's own temperature range. */
+function temperatureCandidates(state: SamplingState): SamplingCandidate[] {
+  const [min, max] = state.config.temperatureRange ?? [state.temperature, state.temperature];
+  const steps = 240;
+  const candidates: SamplingCandidate[] = [];
+  for (let i = 0; i <= steps; i++) {
+    candidates.push({ temperature: Math.round((min + ((max - min) * i) / steps) * 1000) / 1000 });
+  }
+  return candidates;
+}
+
+/**
+ * Truncation settings, swept across all three dials.
+ *
+ * top-p is swept finely because it is the one that can satisfy two prompts of
+ * different sharpness at once; top-k is included so the search can find out for
+ * itself whether a fixed count could have done the job.
+ */
+function truncationCandidates(state: SamplingState): SamplingCandidate[] {
+  const [tempMin, tempMax] = state.config.temperatureRange ?? [state.temperature, state.temperature];
+  const [kMin, kMax] = state.config.topKRange ?? [state.topK, state.topK];
+  const [pMin, pMax] = state.config.topPRange ?? [state.topP, state.topP];
+
+  const temperatures = [1, tempMin, tempMax].filter(
+    (value, index, all) => value >= tempMin && value <= tempMax && all.indexOf(value) === index
+  );
+  const topKs: number[] = [];
+  for (const k of [kMax, 40, 20, 10, 5, 3, 1]) {
+    if (k >= kMin && k <= kMax && !topKs.includes(k)) topKs.push(k);
+  }
+  const topPs: number[] = [];
+  for (let p = pMin; p <= pMax + 1e-9; p += 0.01) {
+    topPs.push(Math.round(p * 100) / 100);
+  }
+
+  const candidates: SamplingCandidate[] = [];
+  for (const temperature of temperatures) {
+    for (const topK of topKs) {
+      for (const topP of topPs) candidates.push({ temperature, topK, topP });
+    }
+  }
+  return candidates;
+}
+
 export function evaluate(state: SamplingState): ScoreResult {
   switch (state.mode) {
     case 'entropy-target': {

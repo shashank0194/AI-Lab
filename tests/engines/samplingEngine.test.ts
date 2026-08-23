@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   reshape,
   currentReshape,
   type SamplingConfig,
@@ -344,5 +345,42 @@ describe('samplingEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('samplingEngine — solve', () => {
+  it('finds a temperature that lands on the entropy target', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { causalLM: fakeLM });
+    const base = initState(config, rulesFor(0), prepared);
+    const solved = solve(base);
+    const result = evaluate(solved);
+
+    expect(result.value).toBeLessThan(evaluate(base).value);
+    expect(result.stars).toBe(3);
+    expect(solved.temperature).toBeGreaterThanOrEqual(config.temperatureRange![0]);
+    expect(solved.temperature).toBeLessThanOrEqual(config.temperatureRange![1]);
+  });
+
+  it('balances kept mass across a sharp and a flat prompt at once', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { causalLM: fakeLM });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+    const result = evaluate(solved);
+
+    expect(result.stars).toBe(3);
+    // Both prompts, not just the easy one — the metric's worst term is what
+    // makes this level an argument for top-p.
+    expect(result.breakdown.worst).toBeGreaterThan(0.9);
+  });
+
+  it('gives each task its own settings rather than one compromise', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { causalLM: fakeLM });
+    const solved = solve(initState(config, rulesFor(2), prepared));
+
+    const temperatures = (config.tasks ?? []).map((task) => solved.taskSettings[task.id]!.temperature);
+    expect(new Set(temperatures).size).toBeGreaterThan(1);
+    expect(evaluate(solved).value).toBeGreaterThan(evaluate(initState(config, rulesFor(2), prepared)).value);
   });
 });

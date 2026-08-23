@@ -16,6 +16,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   reshape,
   currentReshape,
   type SamplingAction,
@@ -27,6 +28,7 @@ import { tinyCausalLM, preloadCausalLM, CAUSAL_LM_MODEL_ID } from '@/models/tiny
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Readout, Slider, Tag, cx, formatNumber } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -56,7 +58,15 @@ export function SamplingCanvas({ game, level, onScore, onSubmit }: GameComponent
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
+      )}
     </ModelGate>
   );
 }
@@ -64,11 +74,14 @@ export function SamplingCanvas({ game, level, onScore, onSubmit }: GameComponent
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: SamplingState;
   dispatch: (action: SamplingAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: SamplingState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -76,6 +89,17 @@ function Board({
 
   const resetRun = useCallback(() => dispatch({ type: 'RESET' }), [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: settings found by reshaping this device's own real
+  // distributions, since the temperature that lands on a target entropy depends
+  // on the shape the model actually produced.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
