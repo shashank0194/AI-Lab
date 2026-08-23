@@ -50,7 +50,30 @@
         "Watch the weight vector — the line only rotates when the perceptron misclassifies the sample currently under the cursor ring. Step through and see which samples trigger a move.",
         "These starting weights already point close to a working boundary, so accuracy begins right at the pass line before you've done anything. It shouldn't take many updates once you start stepping.",
         "Just keep pressing Step (or use ×10) — from these starting weights, a single weight update is enough to reach 100% accuracy."
-      ]
+      ],
+      "solution": {
+        "problem": "The perceptron rule is two lines of arithmetic: if a point is on the wrong side, push the weight vector towards it; otherwise do nothing. This level is scored on final accuracy over 40 linearly separable points, and it is really asking you to watch *when* the line moves rather than to find a boundary yourself.",
+        "steps": [
+          {
+            "title": "Notice where you are starting from",
+            "body": "The level's initial weights (0.4, −0.7) already score 95% — 38 of the 40 points correct — which is above the 0.95 pass mark before you touch anything. That is deliberate: the interesting part is not getting from bad to good, it is watching what the last two points do."
+          },
+          {
+            "title": "Watch the rule fire only on mistakes",
+            "body": "Step through and most steps change nothing at all. The weight vector only moves when the sample under the cursor ring is misclassified, and then it moves by learning rate × label × the point's own coordinates. On this run exactly one update happens in the whole training pass — one point, one correction."
+          },
+          {
+            "title": "Count the steps it actually takes",
+            "body": "From these starting weights the run reaches 100% accuracy at step 7: six steps that find correctly-classified points and do nothing, and one that finds the mistake and fixes it. After that the line never moves again, because there is nothing left to be wrong about."
+          },
+          {
+            "title": "Understand why it stops",
+            "body": "This is the perceptron convergence guarantee, and it is a real theorem: on data that a straight line can separate, this rule reaches a separating line in a finite number of updates, whatever it starts from. The next level shows how few; the third shows what happens when the guarantee's precondition fails."
+          }
+        ],
+        "answer": "Press Step (or ×10) until accuracy reaches 100% — it takes 7 steps and exactly 1 weight update from the level's starting weights. Autofill runs the training out from a clean start, which lands on 100% and three stars.",
+        "takeaway": "\"Learning\" here is one correction per mistake and nothing else — no gradients, no loss function, no epochs. Everything in the rest of this course is an elaboration on that loop, and it is worth having seen the simplest possible version of it move a real boundary."
+      }
     },
     {
       "id": "2-1-l2",
@@ -84,7 +107,30 @@
         "The learning rate scales how far each correction moves the boundary — but this run starts at exactly zero weights. Think about what that means for the very first few updates.",
         "When weights start at zero, the sign of every 'is this point right or wrong' test scales uniformly with the learning rate — which means the sequence of right/wrong decisions the perceptron makes turns out to be exactly the same no matter what η you pick, as long as it's positive.",
         "Set the learning rate to anything reasonable and just run — from a zero start, this dataset converges in exactly 41 updates regardless of η, comfortably inside the 80-update mark for three stars."
-      ]
+      ],
+      "solution": {
+        "problem": "Same rule, harder start: 80 points, weights initialised at exactly zero, and the score is how many steps it takes to first reach 100% accuracy — 260 to pass, 80 for three stars. The slider invites you to tune the learning rate, and the whole point of the level is what that tuning does not do.",
+        "steps": [
+          {
+            "title": "Ask what the learning rate actually changes",
+            "body": "The update is w ← w + η·y·x, and the test for 'is this point wrong' is the sign of y·(w·x + b). Starting from w = 0 and b = 0, every weight the perceptron ever has is a sum of η·y·x terms — so w is exactly η times what it would have been with η = 1. Multiplying a vector by a positive constant cannot change any sign."
+          },
+          {
+            "title": "Conclude the surprising part",
+            "body": "The sequence of right/wrong decisions is therefore identical for every positive learning rate. η = 0.01 and η = 1 make the same mistakes on the same steps and converge at exactly the same step. The rate scales the picture — the line's numbers get bigger or smaller — without changing the path at all."
+          },
+          {
+            "title": "Run it and read the number",
+            "body": "From the zero start this dataset converges at step 41, after 6 updates, whatever the slider says. That is comfortably inside the 80-step three-star band, so the level is won by running rather than tuning."
+          },
+          {
+            "title": "Know when this stops being true",
+            "body": "The result depends entirely on starting from zero. With non-zero initial weights the learning rate does change the trajectory, because the fixed starting vector no longer scales with η, and the sign tests can flip. That is also why learning rate matters everywhere else in this course — the perceptron from zero is the special case, not the rule."
+          }
+        ],
+        "answer": "Leave the learning rate wherever it is and run the training — it converges at step 41 for any positive η. Autofill runs it from a clean start for exactly that, and three stars.",
+        "takeaway": "A hyperparameter that visibly changes the numbers can still change nothing about the outcome. Checking whether a knob actually moves the decision — rather than assuming it must because it moves the display — is the habit this level is really teaching."
+      }
     },
     {
       "id": "2-1-l3",
@@ -119,7 +165,30 @@
         "No amount of stepping through training will separate XOR with a single straight line — that's the whole point of this level. You have to place the boundary by hand with the weight sliders.",
         "A single line can't cleanly split XOR's four quadrants, but it can sacrifice one quadrant and get the other three right — that's the best any straight boundary can do here. Try angling the line diagonally rather than along an axis.",
         "Set w0 ≈ 0.12, w1 ≈ −0.10, bias ≈ 0.08 (any scaled version of that same direction and ratio works too, e.g. w0=0.96, w1=−0.80, bias=0.64) — that reaches about 0.77 accuracy, comfortably past three stars."
-      ]
+      ],
+      "solution": {
+        "problem": "XOR: points are positive when their two coordinates share a sign, negative otherwise, plus 8% label noise. No straight line separates that, and the level is scored on plain accuracy with three stars at 0.68 — which is a deliberate admission that the best available answer is well short of perfect.",
+        "steps": [
+          {
+            "title": "Watch training fail rather than assume it",
+            "body": "Run the perceptron here and it never settles: it keeps finding mistakes, keeps rotating the boundary, and after the full 1500-step budget it lands at 44% accuracy — worse than a coin flip and well below the 50% pass mark. The convergence theorem has not been broken; its precondition simply is not met, and the rule has no way to notice that."
+          },
+          {
+            "title": "Work out the ceiling before you go looking for it",
+            "body": "XOR's four quadrants alternate in label. Any straight line splits the plane in two, so it can agree with at most three of the four quadrants — a ceiling of about 75% on clean data. This dataset also has 10 of its 120 labels flipped by noise, some of which happen to fall on the useful side, so the real best is a shade above that."
+          },
+          {
+            "title": "Place the line by hand, diagonally",
+            "body": "Switch to the weight sliders and angle the boundary across the diagonal rather than along an axis. A direction of roughly (0.73, −0.68) with a bias near 0.50 reaches 76.7% — 92 of 120 points — which is the best any straight line manages on this data. Only the direction and the ratio matter, not the scale: (0.12, −0.10) with bias 0.08 is the same line and scores identically."
+          },
+          {
+            "title": "Read what the failure is telling you",
+            "body": "The lesson is not that the perceptron is bad. It is that a linear model's hypothesis space does not contain the answer, so no amount of training, tuning or patience can find it. The fix has to change the model, not the optimiser — which is exactly what World 3 does by stacking a non-linear layer in front of it."
+          }
+        ],
+        "answer": "Set the weights by hand to a diagonal boundary — w0 ≈ 0.73, w1 ≈ −0.68, bias ≈ 0.50, or any scaled version of that direction — for 76.7% accuracy and three stars. Autofill runs the training first so you can watch it fail, then searches every direction and offset for the best line a straight boundary can manage and sets that.",
+        "takeaway": "This is the failure that ended the first wave of neural network research in 1969 and the one that hidden layers exist to fix. Recognising \"my model class cannot express this\" as a different problem from \"my model is not trained enough\" is the most useful diagnostic in the whole course."
+      }
     }
   ]
 }

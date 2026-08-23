@@ -228,6 +228,74 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * Plays the level the way it can actually be won.
+ *
+ * Two different games share this engine. A level scored on `convergenceSteps`
+ * wants the perceptron run from a clean start, because the metric reads the
+ * step at which it *first* hit 100% and a board already part-trained by hand
+ * can only ever record a later one. A level scored on accuracy wants training
+ * too — unless the data is XOR, where no straight line exists that separates
+ * it and the rule cannot converge, so the boundary has to be placed by hand at
+ * the best angle a line can manage.
+ */
+export function solve(state: LinearClassifierState): LinearClassifierState {
+  const fresh = applyAction(state, { type: 'RESET' });
+  const trained = applyAction(fresh, { type: 'RUN', steps: state.config.maxSteps });
+
+  if (state.rules.passCriteria.metric === 'convergenceSteps') return trained;
+
+  if (accuracyOf(trained.weights, trained.bias, trained.samples) === 1) return trained;
+
+  // Not separable: search for the best line instead of hoping training finds
+  // one. On XOR the perceptron never settles — it keeps rotating the boundary
+  // forever — so where it happens to stop is a coin toss, not an answer.
+  const best = bestBoundary(trained.samples);
+  const bestAccuracy = accuracyOf(best.weights, best.bias, trained.samples);
+  if (bestAccuracy <= accuracyOf(trained.weights, trained.bias, trained.samples)) return trained;
+
+  return applyAction(trained, { type: 'SET_WEIGHTS', weights: best.weights, bias: best.bias });
+}
+
+/**
+ * The most accurate straight boundary over these samples, by direct search.
+ *
+ * A degree-by-degree sweep of directions crossed with a fine sweep of offsets:
+ * the data lives in [-1, 1]², so a unit weight vector plus a bias in [-1.6,
+ * 1.6] covers every line that can cut through it. Coarse enough to be
+ * instant, fine enough that a better line would have to sit within half a
+ * degree of this one.
+ */
+function bestBoundary(samples: readonly Sample[]): { weights: number[]; bias: number } {
+  let bestWeights = [1, 0];
+  let bestBias = 0;
+  let bestScore = -1;
+
+  for (let degrees = 0; degrees < 360; degrees++) {
+    const radians = (degrees * Math.PI) / 180;
+    const weights = [Math.cos(radians), Math.sin(radians)];
+    for (let bias = -1.6; bias <= 1.6; bias += 0.02) {
+      const score = accuracyOf(weights, bias, samples);
+      if (score > bestScore) {
+        bestScore = score;
+        bestWeights = weights;
+        bestBias = bias;
+      }
+    }
+  }
+
+  // Rounded so the filled-in sliders read as numbers a player could have set
+  // themselves; two decimals is finer than the boundary's own sensitivity.
+  return {
+    weights: bestWeights.map((w) => Math.round(w * 100) / 100),
+    bias: Math.round(bestBias * 100) / 100,
+  };
+}
+
 export function evaluate(state: LinearClassifierState): ScoreResult {
   const accuracy = accuracyOf(state.weights, state.bias, state.samples);
   const metric = state.rules.passCriteria.metric;

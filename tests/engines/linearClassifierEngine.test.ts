@@ -5,6 +5,7 @@ import {
   evaluate,
   generateDataset,
   accuracyOf,
+  solve,
   type LinearClassifierConfig,
 } from '@/engines/linearClassifierEngine';
 import type { EngineRules } from '@/types/game';
@@ -244,5 +245,50 @@ describe('linearClassifierEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('linearClassifierEngine — solve', () => {
+  it('trains the separable level to a perfect boundary', () => {
+    const state = initState(configFor(0), rulesFor(0));
+    const solved = solve(state);
+    const result = evaluate(solved);
+
+    expect(accuracyOf(solved.weights, solved.bias, solved.samples)).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('records the earliest convergence step rather than a later one', () => {
+    // The metric reads when the run *first* hit 100%, so a board a player has
+    // already half-trained by hand can only record a worse number than a clean
+    // run — the fill has to rewind before it runs.
+    const state = initState(configFor(1), rulesFor(1));
+    const meddled = applyAction(state, { type: 'RUN', steps: 300 });
+    const solved = solve(meddled);
+
+    expect(solved.convergedAtStep).toBe(41);
+    expect(evaluate(solved).value).toBe(41);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('places XOR’s boundary by hand, because training cannot converge', () => {
+    const state = initState(configFor(2), rulesFor(2));
+    const trained = applyAction(state, { type: 'RUN', steps: configFor(2).maxSteps });
+    const trainedAccuracy = accuracyOf(trained.weights, trained.bias, trained.samples);
+
+    const solved = solve(state);
+    const solvedAccuracy = accuracyOf(solved.weights, solved.bias, solved.samples);
+
+    // Training alone lands well under the pass mark on XOR; the searched
+    // boundary is the best a straight line can do on this data.
+    expect(trainedAccuracy).toBeLessThan(0.5);
+    expect(solvedAccuracy).toBeGreaterThan(0.75);
+    expect(evaluate(solved).stars).toBe(3);
+    expect(solved.converged).toBe(false);
+  });
+
+  it('never claims XOR converged', () => {
+    const solved = solve(initState(configFor(2), rulesFor(2)));
+    expect(accuracyOf(solved.weights, solved.bias, solved.samples)).toBeLessThan(1);
   });
 });

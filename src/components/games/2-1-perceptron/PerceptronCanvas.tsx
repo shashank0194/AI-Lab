@@ -19,6 +19,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   predict,
   accuracyOf,
   type LinearClassifierAction,
@@ -28,6 +29,7 @@ import {
 } from '@/engines/linearClassifierEngine';
 import { Button, Panel, Readout, Slider, Tag } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -65,17 +67,28 @@ export function PerceptronCanvas({ level, onScore, onSubmit }: GameComponentProp
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: LinearClassifierState;
   dispatch: (action: LinearClassifierAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: LinearClassifierState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -83,6 +96,17 @@ function Board({
 
   const resetRun = useCallback(() => dispatch({ type: 'RESET' }), [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: run the training the level can actually win with,
+  // or — on XOR, where no line separates the data — place the best boundary a
+  // line can manage.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const exhausted = state.steps >= state.config.maxSteps;
   // `learningRateRange` is what says this level is about the learning rate.
