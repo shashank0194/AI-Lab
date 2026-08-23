@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type SimilarityRankConfig,
 } from '@/engines/similarityRankEngine';
 import { cosineSimilarity, euclideanDistance } from '@/engines/shared';
@@ -332,5 +333,74 @@ describe('similarityRankEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('similarityRankEngine — solve', () => {
+  it('orders the ranking exactly as the live similarities do', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+    const result = evaluate(solved);
+
+    expect(solved.ordering).toEqual(solved.trueOrder);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('names the outlier every set really has', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+    const result = evaluate(solved);
+
+    for (const set of solved.sets) expect(set.answer).toBe(set.trueOutlier);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('answers each disagreement question with what the two metrics really do', async () => {
+    // Raw, unnormalised vectors with a deliberate magnitude spread — the only
+    // condition under which cosine and Euclidean can order a pair differently.
+    const config = configFor(2);
+    const words = ['the', 'is', 'a', 'photosynthesis', 'kaleidoscope', 'avalanche'];
+    const vectors: Record<string, number[]> = {
+      the: [6.0, 1.0, 0.5],
+      is: [5.2, 0.9, 0.4],
+      a: [6.4, 1.2, 0.3],
+      photosynthesis: [1.0, 6.0, 2.0],
+      kaleidoscope: [0.8, 5.2, 1.4],
+      avalanche: [2.0, 7.8, 3.0],
+    };
+
+    let state = initState(config, rulesFor(2), { vectors: {} });
+    for (const word of words) {
+      state = applyAction(state, { type: 'ADD_WORD', word, vector: vectors[word]! });
+    }
+    expect(state.questions.length).toBe(config.disagreementRounds);
+
+    const solved = solve(state);
+    const result = evaluate(solved);
+    for (const question of solved.questions) {
+      expect(question.answer).toBe(question.trueDisagreement);
+    }
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('leaves a free set alone when there are no questions to answer yet', async () => {
+    // Below `minWords` the engine builds no questions, and the canvas — not the
+    // engine — is what adds the level's suggested words, since building a set
+    // needs an embedder this module deliberately never sees.
+    const config = configFor(2);
+    const state = initState(config, rulesFor(2), { vectors: {} });
+    expect(solve(state).questions).toEqual([]);
+  });
+
+  it('names a suggested word set in the level JSON for the fill to use', () => {
+    // Content lives in the JSON, not in the engine or the canvas.
+    const config = configFor(2);
+    expect(config.solutionWords?.length ?? 0).toBeGreaterThanOrEqual(config.minWords ?? 3);
+    expect(config.solutionWords?.length ?? 0).toBeLessThanOrEqual(config.maxWords ?? 8);
   });
 });

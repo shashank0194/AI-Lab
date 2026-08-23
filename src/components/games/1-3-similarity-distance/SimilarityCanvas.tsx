@@ -21,6 +21,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type DisagreementQuestion,
   type OddOneOutSet,
   type SimilarityRankAction,
@@ -39,6 +40,7 @@ import { Button, Panel, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
 import { usePointerDrag } from '../usePointerDrag';
 import { useDragReorder } from '../useDragReorder';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -84,7 +86,13 @@ export function SimilarityCanvas({ game, level, onScore, onSubmit }: GameCompone
       load={load}
     >
       {state && (
-        <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
       )}
     </ModelGate>
   );
@@ -93,11 +101,14 @@ export function SimilarityCanvas({ game, level, onScore, onSubmit }: GameCompone
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: SimilarityRankState;
   dispatch: (action: SimilarityRankAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: SimilarityRankState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -120,6 +131,40 @@ function Board({
   }, [dispatch]);
 
   useRetrySignal(resetRun);
+
+  /**
+   * The solution's autofill.
+   *
+   * The free-set level is the one that needs more than a pure reducer call: with
+   * fewer than `minWords` words on the board there are no questions to answer,
+   * and building the set means embedding the level's suggested words with the
+   * *raw* (unnormalised) model — the whole level rests on magnitudes, which
+   * normalising would erase. A set the player has already built is left alone.
+   */
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        let next = state;
+        if (state.mode === 'free-set' && state.questions.length === 0) {
+          const max = state.config.maxWords ?? 8;
+          const suggested = (state.config.solutionWords ?? [])
+            .filter((word) => !state.words.includes(word))
+            .slice(0, Math.max(0, max - state.words.length));
+          if (suggested.length > 0) {
+            const vectors = await rawEmbeddingModel.embed(suggested);
+            suggested.forEach((word, i) => {
+              const vector = vectors[i];
+              if (vector) next = applyAction(next, { type: 'ADD_WORD', word, vector });
+            });
+          }
+        }
+        next = solve(next);
+        setState(next);
+        setRevealed(true);
+        onSubmit(evaluate(next));
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));

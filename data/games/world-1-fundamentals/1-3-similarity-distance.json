@@ -46,7 +46,26 @@
         "Think about which words share the most real-world context with 'doctor' — same profession, same workplace, or no relation at all — rather than free-associating.",
         "'Surgeon' is a specific kind of doctor, so it sits clearly closest. 'Bicycle' shares almost no context with 'doctor', so it belongs at the very bottom. Nurse, lawyer and hospital are all much closer to each other than to either extreme, so their exact order matters far less.",
         "Rank, closest to furthest: surgeon first, then nurse, lawyer and hospital bunched together in the middle (in roughly that order), then bicycle clearly last."
-      ]
+      ],
+      "solution": {
+        "problem": "Five words, ordered by how similar the model considers them to 'doctor'. The score is a Spearman rank correlation between your order and the model's, which means it grades the *shape* of your ordering rather than exact positions: getting the ends right and fumbling the middle costs far less than inverting the list.",
+        "steps": [
+          {
+            "title": "Anchor the two ends first",
+            "body": "'Surgeon' is a kind of doctor — same role, same sentences, same everything — so it sits closest. 'Bicycle' shares essentially no context with doctors, so it sits last. Measured live against this model: surgeon 0.75, bicycle 0.32. Those two are not close calls, and between them they carry most of the correlation."
+          },
+          {
+            "title": "Recognise that the middle three are nearly a tie",
+            "body": "The real similarities are nurse 0.608, lawyer 0.605 and hospital 0.597 — a spread of one hundredth. Nurse edges ahead as a fellow clinical role; lawyer, surprisingly, sits level with it, because both are professions that appear in the same grammatical slots ('see a ___', 'my ___ said'); hospital trails slightly because it is a place rather than a person, and the model's sense of similarity is driven by usage, not by topic."
+          },
+          {
+            "title": "Understand what a mistake costs",
+            "body": "Swapping one adjacent pair in the middle drops the score from 1.0 to 0.90 — still two stars, because Spearman barely notices a one-place slip. Ordering the list backwards scores −1.0. Three stars needs 0.95, which in a five-item list means the exact order or nothing."
+          }
+        ],
+        "answer": "Order it surgeon, nurse, lawyer, hospital, bicycle. Autofill sorts the list by each word's live cosine similarity to 'doctor', which produces exactly that order and a correlation of 1.0 — three stars.",
+        "takeaway": "Similarity here is contextual, not taxonomic. 'Lawyer' beating 'hospital' looks wrong from a category point of view and is exactly right from a usage point of view, and that distinction is what makes embedding-based retrieval both powerful and occasionally baffling."
+      }
     },
     {
       "id": "1-3-l2",
@@ -77,7 +96,30 @@
         "In each set, three words share an obvious category and one doesn't belong. Find the theme first, then find what breaks it.",
         "Set one is musical instruments, set two is planets, set three is metals — in each case there's exactly one word from a completely different domain sitting among them.",
         "The odd ones out are: avalanche (not an instrument), diploma (not a planet), and sonnet (not a metal)."
-      ]
+      ],
+      "solution": {
+        "problem": "Three sets of four words, one outlier each. Nothing marks the outlier in the JSON: the engine computes each word's mean cosine similarity to the other three in its set, and the lowest one is the answer. So the level is asking you to predict a computation, not to recall a category.",
+        "steps": [
+          {
+            "title": "Find the theme, then find the break",
+            "body": "Set one is instruments (piano, guitar, drums) with avalanche among them; set two is planets (mercury, venus, saturn) with diploma; set three is metals (copper, iron, zinc) with sonnet. In each case the three theme words are used in similar sentences and the fourth is used in entirely different ones."
+          },
+          {
+            "title": "Check that the numbers agree with the intuition",
+            "body": "Mean similarity to the rest of the set, measured live: piano 0.43, guitar 0.44, drums 0.44, avalanche 0.21. The three instruments sit in a tight band and the outlier is at roughly half their score. Same shape in the other two sets — saturn 0.42 against diploma 0.20, copper 0.45 against sonnet 0.27. The gap is unmistakable, which is why this level is scored on all three sets rather than the closest call."
+          },
+          {
+            "title": "Watch the trap in set two",
+            "body": "'Mercury' is both a planet and a metal, so it is the one word here that could plausibly belong to two different sets. It does not become the outlier: within its own set it still sits with venus and saturn at 0.40, because the surrounding words pull the interpretation towards the planet. Ambiguity is resolved by neighbours, which is the whole reason context matters."
+          },
+          {
+            "title": "Answer all three",
+            "body": "The metric is correct sets over three. Two of three is 0.67 — a one-star pass. Three stars needs 0.99, so all three."
+          }
+        ],
+        "answer": "Avalanche, diploma, sonnet. Autofill answers each set with the word the engine's own mean-similarity computation puts last, which on this model is exactly those three — 3/3 and three stars.",
+        "takeaway": "\"Odd one out\" reduces to a distance computation once words are points in a space, and it needs no category list to do it. The same mean-similarity trick is how deduplication and near-duplicate detection work at scale."
+      }
     },
     {
       "id": "1-3-l3",
@@ -93,7 +135,8 @@
         "maxWords": 8,
         "metric": "both",
         "disagreementRounds": 3,
-        "allowUserWords": true
+        "allowUserWords": true,
+        "solutionWords": ["the", "is", "a", "photosynthesis", "kaleidoscope", "avalanche"]
       },
       "passCriteria": {
         "metric": "metricDisagreementAccuracy",
@@ -110,7 +153,30 @@
         "Cosine only cares about direction; Euclidean also cares about length. The two metrics can only disagree about which of two words is 'closer' when the vectors involved have noticeably different magnitudes.",
         "Mixing very common, short words (which tend to have smaller, more 'average' embeddings) with vivid, unusual or rare words (which tend to sit further from the origin) creates the magnitude gaps that make cosine and Euclidean rank pairs differently.",
         "Build a set mixing plain function words (like 'the', 'is', 'a') with vivid, unusual ones (like 'photosynthesis' or 'kaleidoscope') — the magnitude gap between them is what produces disagreements for the heatmap to reveal. There's no single fixed set that works; any mix of 'plain' and 'unusual' words in this shape tends to."
-      ]
+      ],
+      "solution": {
+        "problem": "You build a set of words yourself, and the level asks three yes/no questions of the form 'does cosine rank X closer to the anchor while Euclidean prefers Y?'. The truth is computed from the two real metrics on your own set. Critically, this level uses the model's *raw* vectors, with their magnitudes intact — every other level in World 1 normalises them.",
+        "steps": [
+          {
+            "title": "Know why the normalised version of this level would be impossible",
+            "body": "On unit-length vectors, Euclidean distance is sqrt(2 − 2·cos), which is strictly decreasing in cosine. Two metrics related by a strictly decreasing function can never disagree about which of two words is closer — not rarely, never. Measured across 336 triples against this model, normalised vectors disagree 0 times and raw vectors disagree 74 times. That is why this one level asks for raw vectors."
+          },
+          {
+            "title": "Build a set with a real spread of magnitudes",
+            "body": "Since only length can create a disagreement, the set needs words whose vectors differ in length. Plain, high-frequency words sit at more 'average' lengths; vivid or unusual ones sit further out. Measured live: 'kaleidoscope' has a norm of 6.0 and 'avalanche' 8.3 — a 40% spread across a six-word set, which is plenty of room for the two metrics to part company."
+          },
+          {
+            "title": "Answer what the metrics do, not what feels intuitive",
+            "body": "With the suggested set, two of the three questions really are disagreements and one is not — and the disagreements come from the *candidates* differing in length, not from the anchor being unusual. 'Kaleidoscope: the vs is' is a disagreement even though both candidates are ordinary function words, because their norms differ by enough (6.5 against 6.1) to flip the Euclidean ordering while cosine keeps its own."
+          },
+          {
+            "title": "Answer all three rounds",
+            "body": "Scoring is correct answers over three rounds, and an unanswered round counts as wrong. 0.6 passes, which means two of three; three stars needs all three. There is no partial credit for a good set — the set only creates the questions, the answers are what is graded."
+          }
+        ],
+        "answer": "Build a set mixing plain function words with vivid unusual ones — the, is, a, photosynthesis, kaleidoscope, avalanche is one that works — then answer each round with what the two metrics actually do. Autofill builds exactly that set with raw embeddings and answers all three rounds from the real comparison, which is 3/3 and three stars.",
+        "takeaway": "Choosing a metric is a modelling decision with consequences, not a formality. Normalise and cosine and Euclidean become the same ranking; do not normalise and they are genuinely different questions — one about direction, one about direction and magnitude together."
+      }
     }
   ]
 }

@@ -23,6 +23,12 @@ export interface SimilarityRankConfig {
   maxWords?: number;
   disagreementRounds?: number;
   allowUserWords?: boolean;
+  /**
+   * Words the worked solution fills a `free-set` board with when the player has
+   * not built one of their own yet. Content, so it lives in the level JSON
+   * beside the rest of the level's parameters — the engine only reads it.
+   */
+  solutionWords?: string[];
 }
 
 export interface PreparedSimilarityData {
@@ -287,6 +293,52 @@ export function applyAction(
 
     case 'SUBMIT':
       return { ...state, status: 'complete', actionCount: state.actionCount + 1 };
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this level's own real vectors produce.
+ *
+ * `trueOrder`, `trueOutlier` and `trueDisagreement` are all derived at
+ * `initState`/`ADD_WORD` time from live embeddings, so filling them in is a
+ * matter of reading state — there is no answer key to copy from, in the
+ * solution any more than in the level.
+ *
+ * `free-set` is the one mode that needs something from outside: with fewer
+ * words than `minWords` there are no questions to answer yet, and building the
+ * set needs an embedder the engine deliberately does not have. The canvas adds
+ * the level's `solutionWords` first and then calls this.
+ */
+export function solve(state: SimilarityRankState): SimilarityRankState {
+  switch (state.mode) {
+    case 'rank':
+      return state.trueOrder.length === 0
+        ? state
+        : applyAction(state, { type: 'SET_ORDER', ordering: [...state.trueOrder] });
+
+    case 'odd-one-out': {
+      let next = state;
+      state.sets.forEach((set, setIndex) => {
+        next = applyAction(next, { type: 'ANSWER_ODD', setIndex, word: set.trueOutlier });
+      });
+      return next;
+    }
+
+    case 'free-set': {
+      let next = state;
+      state.questions.forEach((question, questionIndex) => {
+        next = applyAction(next, {
+          type: 'ANSWER_DISAGREEMENT',
+          questionIndex,
+          value: question.trueDisagreement,
+        });
+      });
+      return next;
+    }
   }
 }
 
