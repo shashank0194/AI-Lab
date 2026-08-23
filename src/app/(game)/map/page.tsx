@@ -3,6 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { WorldMap } from '@/components/map/WorldMap';
+import { assistedLevelsByChapter } from '@/lib/solutionProgress';
 import { useGameProgressStore } from '@/store/useGameProgressStore';
 
 export default function MapPage() {
@@ -25,5 +26,7 @@ export default function MapPage() {
     if (chapter.completedAt !== null) completed[chapter.chapterId] = chapter.stars;
   }
 
-  return <WorldMap completed={completed} xp={xp} />;
+  return (
+    <WorldMap completed={completed} xp={xp} assisted={assistedLevelsByChapter(chapters)} />
+  );
 }

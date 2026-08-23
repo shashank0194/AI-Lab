@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { ArrowLeft, ArrowRight, Lightbulb, RotateCcw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookOpen, Lightbulb, Lock, RotateCcw, X } from 'lucide-react';
 import type { GameDefinition, GameLevel, ScoreResult } from '@/types/game';
 import { nextChapterAfter, worldOfChapter } from '@/lib/curriculum';
 import {
@@ -26,6 +26,8 @@ import { Button, Heading, Panel, Readout, StarRating, Tag, cx } from '@/componen
 import { ShareButton } from '@/components/ui/ShareButton';
 import { ChapterFeedback } from '@/components/chapter/ChapterFeedback';
 import { BuilderLinks } from '@/components/chapter/BuilderLinks';
+import { SolutionModal } from '@/components/chapter/SolutionModal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 
 export interface GameRenderProps {
   level: GameLevel;
@@ -83,10 +85,15 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
   const setPhase = useSessionStore((s) => s.setPhase);
   const registerAttempt = useSessionStore((s) => s.registerAttempt);
   const recordResult = useSessionStore((s) => s.recordResult);
+  const requestSolutionFill = useSessionStore((s) => s.requestSolutionFill);
 
   const [liveScore, setLiveScore] = useState<ScoreResult | null>(null);
   const [chapterDone, setChapterDone] = useState(false);
   const [hintsRevealed, setHintsRevealed] = useState(0);
+  // 'warning' is the "are you sure" step between the gate opening and the
+  // solution itself, so reading the solution is always a deliberate choice.
+  const [solutionStage, setSolutionStage] = useState<'closed' | 'warning' | 'open'>('closed');
+  const [solutionUsed, setSolutionUsed] = useState(false);
 
   const level = game.levels[levelIndex];
   const requiredLevels = useMemo(() => game.levels.filter((l) => !l.optional), [game.levels]);
@@ -102,9 +109,15 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
     if (userId) void enqueueActivity({ userId, type: 'chapter_started', chapterId: game.id });
   }, [game, userId, beginChapter, goToLevel]);
 
-  // A new level starts with none of its hints shown. Not tied to `phase`, so a
-  // retry within the same level keeps whatever the player already unlocked.
-  useEffect(() => setHintsRevealed(0), [level?.id]);
+  // A new level starts with none of its hints shown and its solution locked
+  // again. Not tied to `phase`, so a retry within the same level keeps whatever
+  // the player already unlocked — including the fact that they used the
+  // solution, which is what marks the level as solution-solved when it passes.
+  useEffect(() => {
+    setHintsRevealed(0);
+    setSolutionStage('closed');
+    setSolutionUsed(false);
+  }, [level?.id]);
 
   const handleSubmit = useCallback(
     (result: ScoreResult) => {
@@ -112,6 +125,11 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
       registerAttempt();
       recordResult(result);
       setLiveScore(result);
+
+      // Using the solution on this level taints every pass that follows it in
+      // the same visit; the store then decides whether that can downgrade an
+      // earlier unaided clear (it cannot).
+      const solvedWith = solutionUsed ? 'solution' : 'self';
 
       if (result.passed) {
         recordLevel(game.id, {
@@ -122,6 +140,7 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
           xpEarned: result.xpEarned,
           attempts: attempts + 1,
           completedAt: Date.now(),
+          solvedWith,
         });
         if (soundEnabled) playCorrectTone();
       }
@@ -138,11 +157,22 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
             stars: result.stars,
             xp: result.xpEarned,
             attempts: attempts + 1,
+            solvedWith,
           },
         });
       }
     },
-    [level, game.id, userId, attempts, soundEnabled, registerAttempt, recordResult, recordLevel]
+    [
+      level,
+      game.id,
+      userId,
+      attempts,
+      soundEnabled,
+      solutionUsed,
+      registerAttempt,
+      recordResult,
+      recordLevel,
+    ]
   );
 
   const advance = useCallback(() => {
@@ -172,6 +202,76 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
       });
     }
   }, [levelIndex, requiredLevels, game.id, userId, soundEnabled, goToLevel, completeChapter]);
+
+  /* ── the worked solution ────────────────────────────────────
+     Every step through it is an event: opening it past the warning,
+     taking the fill, and choosing to fill it in yourself instead. Hint
+     reveals are tracked the same way, so "how much help did this level
+     need" is answerable per level rather than only per chapter. */
+
+  const revealHint = useCallback(() => {
+    if (!level?.hints?.length) return;
+    const next = Math.min(hintsRevealed + 1, level.hints.length);
+    if (next === hintsRevealed) return;
+    setHintsRevealed(next);
+    if (userId) {
+      void enqueueActivity({
+        userId,
+        type: 'hint_revealed',
+        chapterId: game.id,
+        levelId: level.id,
+        detail: { hintIndex: next, totalHints: level.hints.length },
+      });
+    }
+  }, [level, hintsRevealed, userId, game.id]);
+
+  const openSolution = useCallback(() => {
+    if (!level) return;
+    setSolutionStage('open');
+    if (userId) {
+      void enqueueActivity({
+        userId,
+        type: 'solution_opened',
+        chapterId: game.id,
+        levelId: level.id,
+        detail: {
+          hintsRevealed,
+          alreadyPassed: Boolean(completedLevels?.[level.id]),
+        },
+      });
+    }
+  }, [level, userId, game.id, hintsRevealed, completedLevels]);
+
+  const autofillSolution = useCallback(() => {
+    if (!level) return;
+    // Set before the signal fires: the canvas submits synchronously off the
+    // back of it, and `handleSubmit` reads this to decide how the pass counts.
+    setSolutionUsed(true);
+    setSolutionStage('closed');
+    requestSolutionFill();
+    if (userId) {
+      void enqueueActivity({
+        userId,
+        type: 'solution_autofilled',
+        chapterId: game.id,
+        levelId: level.id,
+        detail: { alreadyPassed: Boolean(completedLevels?.[level.id]) },
+      });
+    }
+  }, [level, userId, game.id, completedLevels, requestSolutionFill]);
+
+  const declineSolution = useCallback(() => {
+    if (!level) return;
+    setSolutionStage('closed');
+    if (userId) {
+      void enqueueActivity({
+        userId,
+        type: 'solution_declined',
+        chapterId: game.id,
+        levelId: level.id,
+      });
+    }
+  }, [level, userId, game.id]);
 
   if (!level) return null;
 
@@ -217,9 +317,9 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
           phase={phase}
           completedLevels={completedLevels}
           hintsRevealed={hintsRevealed}
-          onRevealHint={() =>
-            setHintsRevealed((n) => Math.min(n + 1, level.hints?.length ?? 0))
-          }
+          solutionUsed={solutionUsed}
+          onRevealHint={revealHint}
+          onOpenSolution={() => setSolutionStage('warning')}
           onRetry={() => {
             setLiveScore(null);
             setPhase('playing');
@@ -231,6 +331,44 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
           onAdvance={advance}
         />
       </aside>
+
+      {/* The warning sits between the unlocked button and the solution itself:
+          the point of the gate is that reading the answer is a decision, not a
+          click you can make by reflex on the way past. */}
+      <AnimatePresence>
+        {solutionStage === 'warning' && level.solution && (
+          <ConfirmDialog
+            title="Read the worked solution?"
+            body={
+              <>
+                You have used every hint on this level, so this is the whole answer — what it is,
+                why it is that and not something else, worked through on this level&apos;s own
+                numbers. It is worth being sure you have actually tried it first: the understanding
+                is the point, and the next chapter builds on it. Going back to revise and coming
+                back later costs you nothing.
+              </>
+            }
+            confirmLabel="Show me the solution"
+            cancelLabel="Let me try again first"
+            onConfirm={openSolution}
+            onCancel={() => setSolutionStage('closed')}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {solutionStage === 'open' && level.solution && (
+          <SolutionModal
+            level={level}
+            solution={level.solution}
+            alreadyPassed={Boolean(completedLevels?.[level.id])}
+            canAutofill={phase !== 'concept'}
+            onAutofill={autofillSolution}
+            onFillMyOwn={declineSolution}
+            onClose={() => setSolutionStage('closed')}
+          />
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {chapterDone && (
@@ -390,7 +528,9 @@ function Hud({
   phase,
   completedLevels,
   hintsRevealed,
+  solutionUsed,
   onRevealHint,
+  onOpenSolution,
   onRetry,
   onAdvance,
   onSelectLevel,
@@ -404,7 +544,10 @@ function Hud({
   /** Which of this chapter's levels already have a passing result, keyed by level id. */
   completedLevels: Record<string, LevelResult> | undefined;
   hintsRevealed: number;
+  /** True once the solution's autofill has been used on the current level. */
+  solutionUsed: boolean;
   onRevealHint: () => void;
+  onOpenSolution: () => void;
   onRetry: () => void;
   onAdvance: () => void;
   /** Jumps straight to an already-cleared level, replaying it. */
@@ -442,6 +585,15 @@ function Hud({
         <HintPanel hints={level.hints} revealed={hintsRevealed} onReveal={onRevealHint} />
       )}
 
+      {level.solution && (
+        <SolutionPanel
+          hintsTotal={level.hints?.length ?? 0}
+          hintsRevealed={hintsRevealed}
+          solutionUsed={solutionUsed}
+          onOpen={onOpenSolution}
+        />
+      )}
+
       {liveScore && Object.keys(liveScore.breakdown).length > 0 && (
         <Panel label="breakdown">
           <dl className="flex flex-col gap-1.5">
@@ -468,6 +620,7 @@ function Hud({
                   {index + 1}. {l.title}
                 </span>
                 <span className="flex items-center gap-1.5">
+                  {result?.solvedWith === 'solution' && <Tag tone="warn">solution</Tag>}
                   {result && <StarRating stars={result.stars} size={10} />}
                   {l.optional && <Tag>stretch</Tag>}
                 </span>
@@ -593,6 +746,84 @@ function HintPanel({
                 : 'Show another hint'}
           </Button>
         )}
+      </div>
+    </Panel>
+  );
+}
+
+/* ── solution gate ──────────────────────────────────────────── */
+
+/**
+ * The way into a level's worked solution, and the gate in front of it.
+ *
+ * The gate is every hint: a solution the player can reach before trying the
+ * hints is a solution most players will reach first, and the hints are where
+ * the actual learning is staged. Until they are spent this renders a locked
+ * button that says so on hover, focus or tap — `aria-disabled` rather than
+ * `disabled`, because a genuinely disabled button swallows the pointer events
+ * the explanation needs to appear on, which is exactly backwards for a control
+ * whose whole job is telling you why it is not available yet.
+ */
+function SolutionPanel({
+  hintsTotal,
+  hintsRevealed,
+  solutionUsed,
+  onOpen,
+}: {
+  hintsTotal: number;
+  hintsRevealed: number;
+  solutionUsed: boolean;
+  onOpen: () => void;
+}) {
+  const locked = hintsRevealed < hintsTotal;
+  const remaining = hintsTotal - hintsRevealed;
+  const [showTip, setShowTip] = useState(false);
+
+  return (
+    <Panel label="solution">
+      <div className="flex flex-col gap-2">
+        <div
+          className="relative"
+          onMouseEnter={() => locked && setShowTip(true)}
+          onMouseLeave={() => setShowTip(false)}
+        >
+          {locked && showTip && (
+            <div
+              role="tooltip"
+              className="absolute bottom-full left-0 z-10 mb-1.5 w-full border border-line-strong bg-raised px-2.5 py-2 text-[11px] leading-relaxed text-secondary shadow-lg"
+              style={{ borderRadius: 'var(--radius)' }}
+            >
+              First use all the hints — {remaining} still{' '}
+              {remaining === 1 ? 'unread' : 'unread'}.
+            </div>
+          )}
+
+          <Button
+            className="w-full"
+            ariaDisabled={locked}
+            title={locked ? 'First use all the hints' : undefined}
+            onClick={() => {
+              if (locked) {
+                setShowTip(true);
+                return;
+              }
+              onOpen();
+            }}
+            onFocus={() => locked && setShowTip(true)}
+            onBlur={() => setShowTip(false)}
+          >
+            {locked ? <Lock size={13} strokeWidth={2} /> : <BookOpen size={13} strokeWidth={2} />}
+            {locked ? 'Solution locked' : 'Show the solution'}
+          </Button>
+        </div>
+
+        <p className="text-[11px] leading-relaxed text-muted">
+          {solutionUsed
+            ? 'You used the solution on this level — it will show as solution-solved on the map until you clear it unaided.'
+            : locked
+              ? `Reveal ${remaining === 1 ? 'the last hint' : `all ${hintsTotal} hints`} first. The solution explains why the answer is the answer, and can fill it in for you.`
+              : 'The full explanation, worked through on this level, with the option to fill the answer in for you.'}
+        </p>
       </div>
     </Panel>
   );

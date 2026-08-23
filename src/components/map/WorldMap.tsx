@@ -17,7 +17,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Lock, Check, X } from 'lucide-react';
+import { Lock, Check, BookOpen, X } from 'lucide-react';
 import {
   manifest,
   resolveUnlocks,
@@ -35,7 +35,20 @@ interface LockedChapterPending {
   missingTitles: string[];
 }
 
-export function WorldMap({ completed, xp }: { completed: CompletionRecord; xp: number }) {
+export function WorldMap({
+  completed,
+  xp,
+  assisted = {},
+}: {
+  completed: CompletionRecord;
+  xp: number;
+  /**
+   * `chapterId → how many of its levels were cleared with the worked solution`,
+   * for completed chapters only. A completed chapter absent from here, or
+   * present with a zero, was solved unaided.
+   */
+  assisted?: Record<string, number>;
+}) {
   const states = resolveUnlocks(completed);
   const summary = summarise(completed, xp);
   const router = useRouter();
@@ -52,6 +65,7 @@ export function WorldMap({ completed, xp }: { completed: CompletionRecord; xp: n
               key={world.world}
               world={world}
               states={states}
+              assisted={assisted}
               isLast={index === manifest.worlds.length - 1}
               onLockedClick={setPending}
             />
@@ -192,11 +206,13 @@ function ProgressRail({ summary }: { summary: ReturnType<typeof summarise> }) {
 function WorldRow({
   world,
   states,
+  assisted,
   isLast,
   onLockedClick,
 }: {
   world: ManifestWorld;
   states: Map<string, ReturnType<typeof resolveUnlocks> extends Map<string, infer V> ? V : never>;
+  assisted: Record<string, number>;
   isLast: boolean;
   onLockedClick: (pending: LockedChapterPending) => void;
 }) {
@@ -237,6 +253,7 @@ function WorldRow({
                 chapter={chapter}
                 world={world}
                 state={states.get(chapter.id)!}
+                assistedLevels={assisted[chapter.id] ?? 0}
                 onLockedClick={onLockedClick}
               />
             </li>
@@ -266,16 +283,28 @@ function ChapterNode({
   chapter,
   world,
   state,
+  assistedLevels,
   onLockedClick,
 }: {
   chapter: ManifestChapter;
   world: ManifestWorld;
   state: { status: 'locked' | 'available' | 'completed'; stars: number; missing: string[] };
+  /** How many of this chapter's levels were cleared with the worked solution. */
+  assistedLevels: number;
   onLockedClick: (pending: LockedChapterPending) => void;
 }) {
   const reduce = useReducedMotion();
   const locked = state.status === 'locked';
+  const completed = state.status === 'completed';
+  const withSolution = completed && assistedLevels > 0;
   const href = `/world/${world.world}/chapter/${chapter.id}`;
+
+  // What a finished chapter says about itself: cleared on your own, or cleared
+  // with the solution open. Named on the node rather than only in a tooltip —
+  // the difference is the point of the mark.
+  const solveNote = withSolution
+    ? `Completed with the worked solution on ${assistedLevels} ${assistedLevels === 1 ? 'level' : 'levels'}`
+    : 'Solved by you, unaided';
 
   const body = (
     <motion.div
@@ -296,8 +325,10 @@ function ChapterNode({
         <div className="flex items-center gap-0.5">
           {locked ? (
             <Lock size={11} strokeWidth={2} className="text-muted" />
-          ) : state.status === 'completed' ? (
-            <Check size={11} strokeWidth={2.5} className="text-accent" />
+          ) : withSolution ? (
+            <BookOpen size={11} strokeWidth={2.5} className="text-warn" aria-label={solveNote} />
+          ) : completed ? (
+            <Check size={11} strokeWidth={2.5} className="text-accent" aria-label={solveNote} />
           ) : null}
           <ShareButton world={world.world} chapterId={chapter.id} chapterTitle={chapter.title} size={11} />
         </div>
@@ -312,13 +343,20 @@ function ChapterNode({
         {chapter.title}
       </span>
 
-      <div className="flex items-center justify-between gap-2">
-        {state.status === 'completed' ? (
+      {/* Wraps rather than squeezing: a completed chapter carries a third tag
+          the 168px node cannot fit on one line. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+        {completed ? (
           <StarRating stars={state.stars} />
         ) : (
           <span className="readout text-[10px] text-muted">{chapter.xpReward} xp</span>
         )}
         <TierTag tier={chapter.tier} />
+        {completed && (
+          <Tag tone={withSolution ? 'warn' : 'good'}>
+            {withSolution ? 'solution' : 'solved by you'}
+          </Tag>
+        )}
       </div>
     </motion.div>
   );
@@ -347,7 +385,10 @@ function ChapterNode({
   return (
     <Link
       href={href}
-      aria-label={`${chapter.title}, ${state.status}`}
+      aria-label={
+        completed ? `${chapter.title}, completed. ${solveNote}.` : `${chapter.title}, ${state.status}`
+      }
+      title={completed ? solveNote : undefined}
       className="block h-full"
     >
       {body}

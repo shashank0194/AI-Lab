@@ -42,6 +42,37 @@ export const starRuleSchema = z.object({
 });
 export type StarRule = z.infer<typeof starRuleSchema>;
 
+/**
+ * One step of a level's worked solution. Rendered in order inside the solution
+ * modal, above the autofill controls.
+ */
+export const solutionStepSchema = z.object({
+  /** What this step does, in a few words. */
+  title: z.string().min(1),
+  /** Why it is the right move, worked through on this level's own numbers. */
+  body: z.string().min(1),
+});
+export type SolutionStep = z.infer<typeof solutionStepSchema>;
+
+/**
+ * A level's full explanation, shown only after every hint has been revealed.
+ *
+ * This is deliberately more than a restated last hint: `problem` re-frames what
+ * the level is actually measuring, `steps` walk through the reasoning on this
+ * level's real configuration with concrete examples, `answer` states exactly
+ * what autofill will apply, and `takeaway` names the idea that transfers to the
+ * next chapter. Everything here is held to the same standard as `hints` — the
+ * numbers come from running the level's own engine, never from a plausible
+ * guess.
+ */
+export const levelSolutionSchema = z.object({
+  problem: z.string().min(1),
+  steps: z.array(solutionStepSchema).min(2).max(8),
+  answer: z.string().min(1),
+  takeaway: z.string().min(1),
+});
+export type LevelSolution = z.infer<typeof levelSolutionSchema>;
+
 export const gameLevelSchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
@@ -68,6 +99,14 @@ export const gameLevelSchema = z.object({
    * the engine before shipping.
    */
   hints: z.array(z.string().min(1)).min(1).max(6).optional(),
+  /**
+   * The full worked solution, gated behind exhausting every hint. Optional in
+   * the schema for the same reason `hints` is — a chapter without a canvas yet
+   * has nothing to solve — but `scripts/validate-games.ts` requires one on any
+   * level that ships hints, so a built chapter can never have one without the
+   * other.
+   */
+  solution: levelSolutionSchema.optional(),
 });
 export type GameLevel = z.infer<typeof gameLevelSchema>;
 

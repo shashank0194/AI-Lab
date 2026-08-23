@@ -24,6 +24,14 @@ export const activityEventTypeSchema = z.enum([
   'portfolio_link_clicked',
   /** The "book 15 min" link on the chapter-complete screen was clicked. */
   'meeting_link_clicked',
+  /** One more hint was revealed on a level. `detail.hintIndex` is 1-based. */
+  'hint_revealed',
+  /** The worked solution was opened, past the "use every hint first" gate and its warning. */
+  'solution_opened',
+  /** The solution modal's "fill it in for me" was used, so the level was cleared with help. */
+  'solution_autofilled',
+  /** The solution was read but the player chose to fill the level in themselves. */
+  'solution_declined',
 ]);
 export type ActivityEventType = z.infer<typeof activityEventTypeSchema>;
 

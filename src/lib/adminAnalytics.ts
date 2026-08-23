@@ -34,6 +34,16 @@ export interface ChapterAnalyticsRow {
   jumpedAhead: number;
   /** Times this chapter was opened via a `?via=share` link. */
   sharedLinkOpened: number;
+  /** Total hints revealed across this chapter's levels. */
+  hintsRevealed: number;
+  /** Distinct users who read a worked solution in this chapter. */
+  solutionUsers: number;
+  /** Times a worked solution was opened here. */
+  solutionsOpened: number;
+  /** Times a level here was cleared by the solution's autofill. */
+  solutionsAutofilled: number;
+  /** Times a solution was read but the player filled the level in themselves. */
+  solutionsDeclined: number;
 }
 
 /** One row per chapter in the curriculum, in play order — present even for a chapter with zero activity. */
@@ -64,6 +74,14 @@ export function shapeChapterAnalytics(rows: ChapterAnalyticsAggregateRow[]): Cha
       levelFailed: get('level_failed')?.count ?? 0,
       jumpedAhead: get('chapter_jumped_ahead')?.count ?? 0,
       sharedLinkOpened: get('chapter_shared_link_opened')?.count ?? 0,
+      hintsRevealed: get('hint_revealed')?.count ?? 0,
+      // Distinct users, not raw opens: re-reading one level's solution three
+      // times is one person who needed it, and the useful question here is how
+      // many players a chapter sends to the answer.
+      solutionUsers: get('solution_opened')?.distinctUsers ?? 0,
+      solutionsOpened: get('solution_opened')?.count ?? 0,
+      solutionsAutofilled: get('solution_autofilled')?.count ?? 0,
+      solutionsDeclined: get('solution_declined')?.count ?? 0,
     };
   });
 }

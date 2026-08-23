@@ -21,6 +21,14 @@ interface SessionState {
   lastResult: ScoreResult | null;
   /** Set when a model-backed chapter could not start. */
   loadError: string | null;
+  /**
+   * Bumped every time the solution modal's autofill is used. Canvases watch it
+   * through `useSolutionFill` rather than reading a boolean, so two autofills
+   * in a row (a replay after a retry) are two distinct signals. It only ever
+   * counts up — resetting it on a level change would read as a fresh request
+   * and fill the next level's board on arrival.
+   */
+  solutionFillNonce: number;
 
   beginChapter: (chapterId: string) => void;
   setPhase: (phase: RunPhase) => void;
@@ -28,6 +36,8 @@ interface SessionState {
   registerAttempt: () => void;
   recordResult: (result: ScoreResult) => void;
   setLoadError: (message: string | null) => void;
+  /** Asks the mounted canvas to fill in this level's worked answer. */
+  requestSolutionFill: () => void;
   endChapter: () => void;
 }
 
@@ -39,6 +49,7 @@ export const useSessionStore = create<SessionState>()((set) => ({
   startedAt: null,
   lastResult: null,
   loadError: null,
+  solutionFillNonce: 0,
 
   beginChapter: (chapterId) =>
     set({
@@ -64,6 +75,9 @@ export const useSessionStore = create<SessionState>()((set) => ({
 
   setLoadError: (loadError) =>
     set({ loadError, phase: loadError === null ? 'loading' : 'failed' }),
+
+  requestSolutionFill: () =>
+    set((state) => ({ solutionFillNonce: state.solutionFillNonce + 1 })),
 
   endChapter: () =>
     set({ chapterId: null, levelIndex: 0, phase: 'concept', attempts: 0, startedAt: null }),

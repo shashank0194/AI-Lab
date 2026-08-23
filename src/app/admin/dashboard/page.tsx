@@ -445,7 +445,7 @@ function ChapterAnalyticsPanel() {
   return (
     <Panel label="chapter analytics" flush>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px] text-left text-xs">
+        <table className="w-full min-w-[1180px] text-left text-xs">
           <thead>
             <tr className="border-b border-line">
               {[
@@ -457,6 +457,9 @@ function ChapterAnalyticsPanel() {
                 'jumped ahead',
                 'shared opens',
                 'levels pass/fail',
+                'hints',
+                'solution users',
+                'autofill/own',
               ].map((h) => (
                 <th key={h} className="label px-3 py-2 font-normal">
                   {h}
@@ -488,11 +491,21 @@ function ChapterAnalyticsPanel() {
                 <td className="readout px-3 py-2 text-muted">
                   {row.levelCompleted}/{row.levelFailed}
                 </td>
+                <td className="readout px-3 py-2 text-muted">{row.hintsRevealed || '—'}</td>
+                <td className="readout px-3 py-2 text-warn">
+                  {row.solutionUsers || '—'}
+                  {row.solutionsOpened > 0 && (
+                    <span className="ml-1 text-[10px] text-muted">({row.solutionsOpened})</span>
+                  )}
+                </td>
+                <td className="readout px-3 py-2 text-muted">
+                  {row.solutionsAutofilled || 0}/{row.solutionsDeclined || 0}
+                </td>
               </tr>
             ))}
             {data?.chapters.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-muted">
+                <td colSpan={11} className="px-3 py-8 text-center text-muted">
                   No activity recorded yet
                 </td>
               </tr>

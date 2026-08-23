@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage, type StateStorage } from 'zustand/middleware';
 import { getDb, PROGRESS_STORE } from '@/models/modelCache';
 import type { CompletionRecord } from '@/lib/curriculum';
+import { resolveSolvedWith, type SolvedWith } from '@/lib/solutionProgress';
 import { GAME_SCHEMA_VERSION } from '@/types/game';
 
 export interface LevelResult {
@@ -22,6 +23,13 @@ export interface LevelResult {
   xpEarned: number;
   attempts: number;
   completedAt: number;
+  /**
+   * Whether the player cleared this level unaided or with the worked
+   * solution's autofill. Absent on results stored before the solution feature
+   * shipped, which were necessarily earned unaided — `resolveSolvedWith`
+   * reads that absence as `self`.
+   */
+  solvedWith?: SolvedWith;
 }
 
 export interface ChapterProgress {
@@ -112,7 +120,15 @@ export const useGameProgressStore = create<GameProgressState>()(
           // Only the improvement is paid out, so replaying a level cannot farm XP.
           const previousXp = previous?.xpEarned ?? 0;
           const xpDelta = Math.max(0, result.xpEarned - previousXp);
-          const keepBest = previous && previous.stars > result.stars ? previous : result;
+          const best = previous && previous.stars > result.stars ? previous : result;
+          // How it was solved is tracked across every attempt, not carried
+          // along with the best-scoring one: a player who clears a level
+          // unaided keeps that mark even if a later autofilled replay scores
+          // higher, and vice versa.
+          const keepBest: LevelResult = {
+            ...best,
+            solvedWith: resolveSolvedWith(previous, result.solvedWith ?? 'self'),
+          };
 
           return {
             xp: state.xp + xpDelta,

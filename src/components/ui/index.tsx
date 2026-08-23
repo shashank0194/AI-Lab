@@ -59,17 +59,29 @@ export function Button({
   onClick,
   variant = 'ghost',
   disabled,
+  ariaDisabled,
   type = 'button',
   className,
   title,
+  onFocus,
+  onBlur,
 }: {
   children: ReactNode;
   onClick?: () => void;
   variant?: ButtonVariant;
   disabled?: boolean;
+  /**
+   * Looks and reads as disabled but still receives pointer and focus events —
+   * for a control that has to be able to explain why it is unavailable, which
+   * a truly `disabled` button cannot do because the browser drops the hover
+   * and focus events that explanation would hang off.
+   */
+  ariaDisabled?: boolean;
   type?: 'button' | 'submit';
   className?: string;
   title?: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }) {
   const styles: Record<ButtonVariant, string> = {
     primary:
@@ -83,7 +95,10 @@ export function Button({
       type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-disabled={ariaDisabled || undefined}
       title={title}
+      onFocus={onFocus}
+      onBlur={onBlur}
       className={cx(
         'inline-flex items-center justify-center gap-2 border px-3 py-2',
         'font-mono text-xs uppercase tracking-[0.1em]',
@@ -91,6 +106,7 @@ export function Button({
         // Touch-first: never smaller than a comfortable tap target.
         'min-h-[40px]',
         'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent',
+        ariaDisabled && 'cursor-not-allowed opacity-40 hover:bg-transparent',
         styles[variant],
         className
       )}
