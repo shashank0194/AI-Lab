@@ -37,6 +37,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   buildRound,
   type PredictionRound,
   type TransformerAssemblyAction,
@@ -47,6 +48,7 @@ import { gpt2CausalLM, tokenizePrompt, GPT2_MODEL_ID } from '@/models/tinyCausal
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import { useDragReorder } from '../useDragReorder';
 import { usePointerDrag } from '../usePointerDrag';
 import type { GameComponentProps } from '../registry';
@@ -115,7 +117,15 @@ export function FullTransformerCanvas({ game, level, onScore, onSubmit }: GameCo
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
+      )}
     </ModelGate>
   );
 }
@@ -123,11 +133,14 @@ export function FullTransformerCanvas({ game, level, onScore, onSubmit }: GameCo
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: TransformerAssemblyState;
   dispatch: (action: TransformerAssemblyAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: TransformerAssemblyState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -143,6 +156,39 @@ function Board({
   }, [dispatch]);
 
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the pipeline restored to the order the level
+  // defines, or each round answered with the token the real forward pass ranks
+  // first.
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        let next = state;
+        // The end-to-end level scores out of its configured round count, and
+        // ships with only the one prompt prepared — the rest are the player's
+        // to bring, so the fill brings the level's own.
+        if (state.mode === 'run-end-to-end') {
+          const wanted = state.config.rounds ?? state.rounds.length;
+          for (const prompt of state.config.solutionPrompts ?? []) {
+            if (next.rounds.length >= wanted) break;
+            if (next.rounds.some((round) => round.prompt === prompt)) continue;
+            const distribution = await gpt2CausalLM.nextTokenDistribution(
+              prompt,
+              state.config.topK ?? 5
+            );
+            next = applyAction(next, {
+              type: 'ADD_ROUND',
+              round: buildRound(prompt, distribution, next.rounds.length + 1),
+            });
+          }
+        }
+        const solved = solve(next);
+        setState(solved);
+        setRevealed(true);
+        onSubmit(evaluate(solved));
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));

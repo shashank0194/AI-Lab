@@ -59,7 +59,30 @@
         "Tokens have to exist and be turned into vectors before anything numeric can happen to them — start with tokenize and embed, then work out what has to happen before attention can mix information across positions at all.",
         "Attention needs a query, key and value before it can attend to anything, and its output gets added back to what came in (a residual) and normalised before the feed-forward layer touches it. That add-then-normalise pattern happens a second time after the feed-forward layer, then the block is done.",
         "Verified order: tokenize, embed, positional-encoding, qkv-projection, attention, residual-add-1, layer-norm-1, feed-forward, residual-add-2, layer-norm-2, unembed, softmax."
-      ]
+      ],
+      "solution": {
+        "problem": "Twelve stages of a transformer's forward pass, shuffled. Put them back in the order data actually flows through them. Partial credit is on, so a nearly-right ordering still scores, but three stars needs the exact sequence.",
+        "steps": [
+          {
+            "title": "Start at the two ends, which are unambiguous",
+            "body": "Text has to become tokens before anything else can happen, so tokenize is first and embed follows it. At the other end, unembed projects the final hidden state back to vocabulary size and softmax turns those scores into probabilities — softmax is always last, because there is nothing to do with a probability distribution except read it."
+          },
+          {
+            "title": "Place positional encoding immediately after embedding",
+            "body": "Chapter 5.1's whole point is that attention cannot see order, so position has to be added to the token representations before the first attention. That fixes the third stage."
+          },
+          {
+            "title": "Order the attention block from the inside out",
+            "body": "Attention needs queries, keys and values, so qkv-projection precedes attention. Then comes the plumbing from chapter 5.4 in its standard post-norm arrangement: residual-add-1 puts the block's input back, layer-norm-1 rescales the result."
+          },
+          {
+            "title": "Repeat the same shape for the feed-forward half",
+            "body": "A transformer block is two sub-layers with identical wrapping. feed-forward, then residual-add-2, then layer-norm-2. Recognising that repeat is what makes the twelve stages memorable — there are really only about five distinct ideas here."
+          }
+        ],
+        "answer": "tokenize, embed, positional-encoding, qkv-projection, attention, residual-add-1, layer-norm-1, feed-forward, residual-add-2, layer-norm-2, unembed, softmax. Autofill restores exactly that order, for a perfect score and three stars.",
+        "takeaway": "Every transformer you will meet is this sequence, repeated N times between the embedding and the unembedding. Modern variants move the normalisation before the sub-layer rather than after it, but the skeleton is unchanged since 2017."
+      }
     },
     {
       "id": "5-5-l2",
@@ -103,7 +126,30 @@
         "Four stages are missing. Two of them are the 'add the input back' steps that appear right after attention and right after the feed-forward layer — the residual connections.",
         "positional-encoding has to land between embed and qkv-projection, or every position looks identical to attention. softmax is marked critical here — it's what turns raw scores into next-token probabilities — so leaving it out costs double what a merely-missing layer-norm does.",
         "Verified: the missing stages are positional-encoding (right after embed), residual-add-1 (right after attention), layer-norm-2 (right after the second residual add) and softmax (the very last stage, after unembed)."
-      ]
+      ],
+      "solution": {
+        "problem": "The same pipeline with four stages removed and sitting in the tray. Put each one back where it belongs. Critical stages count double, and restoring stages in the wrong order only earns partial credit — completeness is multiplied by ordering accuracy.",
+        "steps": [
+          {
+            "title": "Find what is missing by walking the block",
+            "body": "Read the arrangement in order and check each expected stage against chapter 5.4's shape. The four gaps are positional-encoding, residual-add-1, layer-norm-2 and softmax — one from each part of the pipeline, which is what makes this a test of the whole structure rather than of one memorised chunk."
+          },
+          {
+            "title": "Place each one by what it needs and what needs it",
+            "body": "positional-encoding goes right after embed, because attention is next and it must not see an unordered set. residual-add-1 goes right after attention, since a residual adds the sub-layer's input back to its output. layer-norm-2 goes right after the second residual add, matching layer-norm-1's position after the first. softmax goes last, after unembed."
+          },
+          {
+            "title": "Take the critical stages seriously",
+            "body": "Some of the missing stages are marked critical and weigh double, and the weighting is honest about severity. Leaving out softmax means the model emits raw scores rather than probabilities — nothing downstream works. Leaving out a second layer norm degrades the stack; leaving out attention removes the model. Not all omissions are equal."
+          },
+          {
+            "title": "Get the order right as well as the contents",
+            "body": "The score multiplies completeness by ordering accuracy, so restoring all four stages in the wrong places scores substantially less than three stars. Put each one in its exact slot rather than anywhere in the tray's general vicinity."
+          }
+        ],
+        "answer": "positional-encoding after embed; residual-add-1 after attention; layer-norm-2 after residual-add-2; softmax at the very end after unembed. Autofill puts every missing stage back in its exact position, for a perfect 1.0 and three stars.",
+        "takeaway": "The transformer block's structure is constrained rather than arbitrary — each stage has to sit where it does because of what it consumes and produces. That is why the architecture has proved so stable: most rearrangements are simply wrong."
+      }
     },
     {
       "id": "5-5-l3",
@@ -131,7 +177,8 @@
         "layer": 6,
         "topK": 5,
         "rounds": 3,
-        "allowUserPrompt": true
+        "allowUserPrompt": true,
+        "solutionPrompts": ["I think therefore I", "The capital of France is"]
       },
       "passCriteria": {
         "metric": "endToEndScore",
@@ -148,7 +195,30 @@
         "The given prompt's real top-5 is genuinely close together, not a case with one obvious answer — read the actual percentages once they're shown rather than guessing from intuition. All three rounds count toward the score and an unanswered round scores as wrong, so add and answer all of them before submitting.",
         "Verified against the real model for \"The first rule of debugging is to\": the renormalised top-5 is make 23.1%, use 20.4%, find 20.4%, be 18.0%, not 18.0% — the real top token is 'make', with 'use' and 'find' tied close behind at this model's precision.",
         "For your own rounds, a confident prompt is easier to call than the default one: \"I think therefore I\" verifies to am 30.1%, should 20.7%, 'm 19.4%, have 17.2%, can 12.6% — a clear, wide leader, unlike the default prompt's close race."
-      ]
+      ],
+      "solution": {
+        "problem": "The pipeline, run for real. Each round shows a prompt and the model's actual top-5 next tokens in shuffled order, and you pick the one it ranks first. The level scores out of three rounds — one prompt ships with it and the rest are yours to bring, so an unfinished board is scored as if the missing rounds were wrong.",
+        "steps": [
+          {
+            "title": "Bring the extra rounds before anything else",
+            "body": "The denominator is the level's configured round count, not the number of rounds you happen to have on the board. Answering only the shipped prompt caps the score at a third — a fail — no matter how right that answer is."
+          },
+          {
+            "title": "Choose prompts with a clear winner",
+            "body": "The shipped prompt, 'The first rule of debugging is to', is a close race between several plausible verbs — genuinely hard to call. A prompt whose continuation is nearly fixed is much easier: 'I think therefore I' verifies to am 30.1%, should 20.7%, 'm 19.4%, have 17.2%, can 12.6% — a wide, clear leader."
+          },
+          {
+            "title": "Read the choices as a distribution, not a quiz",
+            "body": "The five options are the model's real top five, shuffled. That means every option is plausible — there are no obviously wrong answers to eliminate. Pick the one that is most ordinary rather than the one that is most interesting, which is the same lesson as chapter 1.5's first level, now at the end of a whole transformer."
+          },
+          {
+            "title": "Notice what has just happened",
+            "body": "This is the same real GPT-2 forward pass whose attention rows you read in 5.2, whose heads you classified in 5.3 and whose norms you traced in 5.4, now producing a next-token distribution end to end. Every stage you ordered two levels ago ran to produce these five numbers."
+          }
+        ],
+        "answer": "Add the level's own extra prompts and pick each round's real top token — 'I think therefore I' resolves to ' am' at 30.1%. Autofill runs the extra prompts through the real model, then answers every round with the token that forward pass ranks first, for 3/3 and three stars.",
+        "takeaway": "A language model is a pipeline of understandable stages ending in a probability distribution, and you have now driven every one of those stages by hand. Nothing after this chapter adds a new kind of component — World 6 onwards is about scale, grounding, tools and what breaks."
+      }
     }
   ]
 }

@@ -24,6 +24,13 @@ export interface TransformerAssemblyConfig {
   topK?: number;
   rounds?: number;
   allowUserPrompt?: boolean;
+  /**
+   * Extra prompts the worked solution runs to fill the remaining rounds. The
+   * level scores out of its configured round count, so a fill that only
+   * answered the shipped prompt would score a third of the marks. Running them
+   * needs the model, so the canvas does it.
+   */
+  solutionPrompts?: string[];
 }
 
 export interface PredictionRound {
@@ -231,6 +238,59 @@ export function orderingAccuracy(arrangement: readonly string[], correct: readon
     }
   }
   return pairs === 0 ? 0 : ordered / pairs;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The pipeline this level defines, and the token the real model predicts.
+ *
+ * The correct order is already in state — the level's own `stages` list before
+ * shuffling — so ordering and gap-filling are a matter of restoring it. The
+ * end-to-end level's rounds carry real distributions from a real forward pass,
+ * so its answers are read off those.
+ */
+export function solve(state: TransformerAssemblyState): TransformerAssemblyState {
+  switch (state.mode) {
+    case 'order-stages':
+      return applyAction(state, {
+        type: 'SET_ARRANGEMENT',
+        stages: [...state.correctOrder],
+      });
+
+    case 'fill-gaps': {
+      // The removed stages have to be put back before the board can be
+      // rearranged at all: `SET_ARRANGEMENT` only accepts a permutation of
+      // what is currently placed, which is exactly what a gap-filling board
+      // is not.
+      let next = state;
+      state.correctOrder.forEach((stage, index) => {
+        if (next.arrangement.includes(stage)) return;
+        const position = Math.min(index, next.arrangement.length);
+        next = applyAction(next, { type: 'INSERT_STAGE', stage, position });
+      });
+      return applyAction(next, { type: 'SET_ARRANGEMENT', stages: [...next.correctOrder] });
+    }
+
+    case 'run-end-to-end': {
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        const probs = round.distribution.probs;
+        if (probs.length === 0) return;
+        let best = 0;
+        for (let i = 1; i < probs.length; i++) {
+          if (probs[i]! > probs[best]!) best = i;
+        }
+        const token = round.distribution.tokens[best];
+        if (token !== undefined) {
+          next = applyAction(next, { type: 'ANSWER_TOP_TOKEN', roundIndex, token });
+        }
+      });
+      return next;
+    }
+  }
 }
 
 export function evaluate(state: TransformerAssemblyState): ScoreResult {

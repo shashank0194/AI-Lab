@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   orderingAccuracy,
   buildRound,
   type TransformerAssemblyConfig,
@@ -314,5 +315,66 @@ describe('transformerAssemblyEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('transformerAssemblyEngine — solve', () => {
+  it('restores the pipeline to the order the level defines', () => {
+    const config = configFor(0);
+    const solved = solve(initState(config, rulesFor(0)));
+
+    expect(solved.arrangement).toEqual(solved.correctOrder);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('puts the removed stages back before rearranging', () => {
+    // A gap-filling board is not a permutation of the full pipeline, so the
+    // missing stages have to come out of the tray first.
+    const config = configFor(1);
+    const base = initState(config, rulesFor(1));
+    const solved = solve(base);
+
+    expect(base.tray.length).toBeGreaterThan(0);
+    expect(solved.tray).toEqual([]);
+    expect(solved.arrangement).toEqual(solved.correctOrder);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('leaves no critical stage missing', () => {
+    const config = configFor(1);
+    const solved = solve(initState(config, rulesFor(1)));
+    for (const stage of config.criticalStages ?? []) {
+      expect(solved.arrangement).toContain(stage);
+    }
+    expect(evaluate(solved).breakdown.criticalMissing).toBe(0);
+  });
+
+  it('answers each end-to-end round with the model’s own top token', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { causalLM: fakeLM });
+    let state = initState(config, rulesFor(2), prepared);
+
+    // The level ships with one prepared prompt and scores out of three, so the
+    // canvas adds the level's own solution prompts before the engine answers.
+    for (const prompt of config.solutionPrompts ?? []) {
+      const distribution = await fakeLM.nextTokenDistribution(prompt, config.topK ?? 5);
+      state = applyAction(state, {
+        type: 'ADD_ROUND',
+        round: buildRound(prompt, distribution, state.rounds.length + 1),
+      });
+    }
+
+    const solved = solve(state);
+    expect(solved.rounds).toHaveLength(config.rounds!);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('names enough solution prompts to fill the level’s round count', () => {
+    const config = configFor(2);
+    const shipped = config.prompt ? 1 : 0;
+    expect(shipped + (config.solutionPrompts?.length ?? 0)).toBeGreaterThanOrEqual(config.rounds!);
   });
 });
