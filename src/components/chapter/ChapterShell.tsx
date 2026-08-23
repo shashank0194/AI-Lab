@@ -278,7 +278,7 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
   return (
     <div data-world={game.world} className="flex min-h-0 flex-1 flex-col lg:flex-row">
       {/* ── the instrument: dominant, always visible ── */}
-      <div className="relative flex min-h-[55vh] min-w-0 flex-1 flex-col lg:min-h-0">
+      <div className="relative flex min-h-[55vh] min-w-0 flex-1 flex-col">
         <ChapterBar
           game={game}
           level={level}
@@ -301,14 +301,11 @@ export function ChapterShell({ game, prerequisiteGap, children }: ChapterShellPr
       </div>
 
       {/* ── HUD: below the canvas on mobile, a persistent rail from lg up.
-          Always rendered — there is no toggle to find the score or hints.
-          `lg:overflow-hidden` so the rail's own inner scroller is the only
-          thing that moves: revealing a hint lengthens the HUD, and that must
-          not resize or scroll the canvas sitting beside it. ── */}
+          Always rendered — there is no toggle to find the score or hints. ── */}
       <aside
         className={cx(
           'flex flex-col border-t border-line bg-panel/40',
-          'lg:min-h-0 lg:w-[320px] lg:shrink-0 lg:overflow-hidden lg:border-l lg:border-t-0'
+          'lg:min-h-0 lg:w-[320px] lg:shrink-0 lg:border-l lg:border-t-0'
         )}
       >
         <Hud
@@ -495,8 +492,8 @@ function ConceptPanel({
   onStart: () => void;
 }) {
   return (
-    <div className="grid-field flex min-h-0 flex-1 flex-col overflow-y-auto px-6 py-10">
-      <div className="mx-auto my-auto w-full max-w-xl">
+    <div className="grid-field flex flex-1 items-center justify-center px-6 py-10">
+      <div className="w-full max-w-xl">
         <p className="label mb-2">{game.id}</p>
         <Heading level={2} className="mb-4">
           {game.chapterTitle}

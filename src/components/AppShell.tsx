@@ -55,12 +55,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   if (isAdmin) return <>{children}</>;
 
   return (
-    // `h-dvh` + `overflow-hidden`, not `min-h-dvh`: the app owns exactly one
-    // viewport, and scrolling happens *inside* a screen rather than on the
-    // document. Without a bounded height here, a chapter's HUD growing (a
-    // revealed hint, a longer level list) grows the whole page and shifts the
-    // game canvas beside it, instead of scrolling within its own rail.
-    <div className="flex h-dvh flex-col overflow-hidden bg-base">
+    <div className="flex min-h-dvh flex-col bg-base">
       <ServiceWorkerRegistrar />
       <header className="sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-line bg-base/90 px-3 py-2 backdrop-blur-sm sm:px-4">
         <Link href="/map" className="flex items-baseline gap-2">
@@ -97,9 +92,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      {/* Screens that are taller than the viewport scroll here; screens that
-          manage their own panes (the chapter view) fit exactly and never do. */}
-      <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
+      <main className="flex min-h-0 flex-1 flex-col">{children}</main>
     </div>
   );
 }
