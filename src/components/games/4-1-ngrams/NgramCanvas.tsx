@@ -17,6 +17,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   buildTable,
   probabilityOf,
   heldOutPerplexity,
@@ -31,6 +32,7 @@ import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Readout, Slider, Tag, cx, formatNumber } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -59,7 +61,15 @@ export function NgramCanvas({ game, level, onScore, onSubmit }: GameComponentPro
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
+      )}
     </ModelGate>
   );
 }
@@ -67,11 +77,14 @@ export function NgramCanvas({ game, level, onScore, onSubmit }: GameComponentPro
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: NgramPredictionState;
   dispatch: (action: NgramPredictionAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: NgramPredictionState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -87,6 +100,17 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the corpus's own next word, or the order and
+  // smoothing that really score best once the table is rebuilt at each.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const isQuiz = state.mode === 'beat-the-model';
 

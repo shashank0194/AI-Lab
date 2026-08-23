@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   tokenize,
   buildTable,
   probabilityOf,
@@ -316,6 +317,63 @@ describe('ngramPredictionEngine — level config coverage', () => {
       const state = initState(config, rulesFor(i), prepared);
       const result = evaluate(state);
       expect(result.metric).toBe(level.passCriteria.metric);
+    }
+  });
+});
+
+describe('ngramPredictionEngine — solve', () => {
+  it('answers every round with the corpus’s real next word', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+
+    for (const round of solved.rounds) expect(round.answer).toBe(round.trueNext);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('picks the order that really minimises held-out perplexity', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const base = initState(config, rulesFor(1), prepared);
+    const solved = solve(base);
+
+    const [nMin, nMax] = config.nRange!;
+    for (let n = nMin; n <= nMax; n++) {
+      const candidate = applyAction(base, { type: 'SET_N', value: n });
+      // At the solution's own smoothing, no other order does better.
+      const matched = applyAction(candidate, { type: 'SET_ALPHA', value: solved.alpha });
+      expect(evaluate(matched).value).toBeGreaterThanOrEqual(evaluate(solved).value - 1e-9);
+    }
+  });
+
+  it('tunes smoothing as well as order', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const base = initState(config, rulesFor(1), prepared);
+    const solved = solve(base);
+
+    const sameOrderShippedAlpha = applyAction(
+      applyAction(base, { type: 'SET_N', value: solved.n }),
+      { type: 'SET_ALPHA', value: config.smoothingAlpha! }
+    );
+    expect(evaluate(solved).value).toBeLessThanOrEqual(evaluate(sameOrderShippedAlpha).value);
+  });
+
+  it('lands on the highest order that still generalises, not the highest order', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const base = initState(config, rulesFor(2), prepared);
+    const solved = solve(base);
+    const result = evaluate(solved);
+
+    expect(solved.n).toBe(result.breakdown.highestViableOrder);
+    expect(result.breakdown.coverage).toBeGreaterThanOrEqual(config.minCoverage!);
+    expect(result.stars).toBe(3);
+    // One order past the wall scores worse, however much context it promises.
+    const past = (result.breakdown.highestViableOrder as number) + 1;
+    if (past <= config.nRange![1]) {
+      const tooHigh = applyAction(base, { type: 'SET_N', value: past });
+      expect(evaluate(tooHigh).value).toBeLessThan(result.value);
     }
   });
 });

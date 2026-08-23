@@ -49,7 +49,30 @@
         "You're not just guessing blind — you're trying to beat, or at least match, what a bigram table already knows about this text from counting alone. Trust your sense of the sentence; the table only ever looks one word back.",
         "A bigram has no idea what the sentence is about — it just remembers what usually follows the single word right before the blank. After punctuation like a comma or period it tends to reach for whatever's simply most common overall; where the context word is more distinctive, its guess gets sharper.",
         "Checked against this exact corpus and round set: always picking whichever offered candidate the bigram table itself ranks highest scores 3 of 8 (0.375) — exactly the 1-star line. Its most confident read is the round where the context is a period: it's 29% sure the next token is an opening quote, and it's right."
-      ]
+      ],
+      "solution": {
+        "problem": "A bigram model counted from a real Austen corpus at runtime, and eight rounds where you and it both predict the next word from the previous one. You pick from four candidates; the score is how many you get right. The 'right' answer is what the corpus actually says next, not what the model guessed.",
+        "steps": [
+          {
+            "title": "Know what the model can and cannot see",
+            "body": "A bigram model sees exactly one word of context. Given 'is', it has no idea whether the sentence is about weather, a person or a house — it can only report which words most often followed 'is' across the whole corpus. That is the handicap you are playing against, and it is why you can beat it."
+          },
+          {
+            "title": "Use the context the model is throwing away",
+            "body": "You can see the surrounding sentence; the model cannot. Two of this level's rounds both have the context word 'is', and their real continuations are different ('adjusting' and 'very'). No bigram model can get both right — the same context always produces the same distribution — but a reader can."
+          },
+          {
+            "title": "Prefer the ordinary continuation among the candidates",
+            "body": "The four candidates are drawn so that one is the true next word and the others are plausible. When the sentence gives you nothing, fall back on frequency: after a full stop, an opening quotation mark is common in dialogue-heavy prose; after 'but', a preposition or pronoun is more likely than a rare noun."
+          },
+          {
+            "title": "Know the bar",
+            "body": "Eight rounds, and three of eight (0.375) passes. Five of eight is two stars, and seven of eight is three. You are not expected to be perfect — the level's point is the gap between one word of context and a whole sentence of it."
+          }
+        ],
+        "answer": "The corpus's real continuations, in order: pleasant, but, for, adjusting, dinner, perhaps, very, and an opening quotation mark. Autofill answers each round with the real next word, for 8/8 and three stars.",
+        "takeaway": "Everything after this chapter is an answer to the same limitation. RNNs, and then attention, exist because the useful context for the next word is usually further back than one token — and a counting model cannot reach it at any table size."
+      }
     },
     {
       "id": "4-1-l2",
@@ -82,7 +105,30 @@
         "Perplexity measures how surprised the table is by held-out text — lower is better — and it needs the order n and the smoothing alpha tuned together, not just one of them.",
         "Going from unigram to bigram is an easy win here, because a bigram actually uses the preceding word instead of ignoring context entirely. Past that, contexts get so specific that most were never seen in training — climbing to trigrams on this corpus makes perplexity worse, not better, because sparsity starts to dominate over the extra context.",
         "Checked directly on this corpus: n = 2 with the default alpha (0.1) reaches a perplexity of about 189 — 2 stars, just short of the 187 line. Nudging alpha down to 0.05 at the same n = 2 reaches about 186 — 3 stars. Every n from 3 upward scores worse than n = 2, regardless of alpha."
-      ]
+      ],
+      "solution": {
+        "problem": "The same corpus, and now you tune the model itself: the order n, meaning how many words of context each count is keyed on, and the Laplace smoothing constant α. The score is perplexity on a held-out 20% split — roughly, how many equally-likely words the model thinks could come next, so lower is better.",
+        "steps": [
+          {
+            "title": "Start at both extremes to bracket the answer",
+            "body": "n = 1 ignores context entirely — one context, 100% coverage of the held-out text, and a perplexity of 263.5, which is just the corpus's word-frequency distribution. n = 5 builds 1,609 contexts and covers 3.9% of what the held-out text asks for, scoring 421.4. Both fail. The answer is between them."
+          },
+          {
+            "title": "Watch coverage collapse as n rises",
+            "body": "Measured on this corpus: n = 2 gives 439 contexts and 84.4% coverage; n = 3 gives 1,207 contexts and 34.5%; n = 4 gives 1,502 and 9.7%. Each extra word of context makes the counts more specific and much rarer, so the model spends most of its time falling back on smoothing rather than on anything it counted."
+          },
+          {
+            "title": "Read perplexity as the balance of those two forces",
+            "body": "n = 2 is the only order where the extra context is worth what it costs: 189.2 against the unigram's 263.5. At n = 3 the loss of coverage overwhelms the gain, and perplexity jumps to 340 — worse than using no context at all."
+          },
+          {
+            "title": "Then tune α, because it is worth a star here",
+            "body": "The three-star bar is 187 and n = 2 at the shipped α = 0.1 scores 189.2 — two stars, agonisingly close. Lowering α to 0.05 gives 186.4 and three stars. α controls how much probability is handed to unseen continuations: too much and every real prediction is diluted, too little and an unseen word costs enormously. On a corpus this small, a little less than the default is right."
+          }
+        ],
+        "answer": "n = 2 with α ≈ 0.05 — held-out perplexity 186.4, three stars. Autofill rebuilds the table at every order and smoothing value the level allows and keeps that pair.",
+        "takeaway": "Every n-gram model is this trade-off and nothing else: more context is more predictive when you have seen it, and you have seen almost nothing. That is the sparsity ceiling neural language models were invented to break, by sharing statistical strength between contexts instead of counting each one separately."
+      }
     },
     {
       "id": "4-1-l3",
@@ -116,7 +162,30 @@
         "The wall isn't about how high n can go — it's about the highest n where the table has still actually seen most of the contexts it's tested against. Watch the coverage number, not just the score.",
         "Coverage collapses fast as n grows: on this corpus, bigram contexts are seen well over 80% of the time, but by four-word contexts coverage drops under 10% — almost every context in the held-out text is one the table simply never counted. Push n past the point where coverage crosses the 0.3 floor and you're being scored on data the table can't generalise to at all.",
         "Checked directly: on this corpus the highest order that still clears the 0.3 coverage floor is n = 3 (about 34.5% coverage — full credit, 3 stars). n = 2 still works but isn't the highest viable order, so it lands short of full credit; n = 4 and above fall under the floor entirely and score 0."
-      ]
+      ],
+      "solution": {
+        "problem": "The same tuning dials, but scored differently: the task is to find the *wall* — the highest order whose contexts still cover at least 30% of the held-out text. Full marks for landing exactly on it, a quarter off for each order you stop short, and zero for going past it, where the counts have fallen apart.",
+        "steps": [
+          {
+            "title": "Notice where the level starts",
+            "body": "The shipped setting is n = 3, and that is already the answer — coverage 34.5%, just above the 30% floor, score 1.0 and three stars before you touch anything. Worth saying plainly rather than pretending otherwise. The value here is in checking why it is the answer, which the surrounding orders make obvious."
+          },
+          {
+            "title": "Walk the orders and watch coverage fall off a cliff",
+            "body": "Measured: n = 2 covers 84.4%, n = 3 covers 34.5%, n = 4 covers 9.7%, n = 5 covers 3.9%, n = 6 covers 1.7% and n = 7 covers 1.0%. The drop from n = 3 to n = 4 is the wall — beyond it, nine of every ten held-out contexts have never been seen, so the model is answering almost entirely from its smoothing constant."
+          },
+          {
+            "title": "Understand why stopping short also costs",
+            "body": "n = 2 is safe: 84.4% coverage, and the lowest perplexity on the board at 186.4. But it scores 0.75 here, because the level is asking a different question — how far can context be pushed before the counts stop existing. Retreating to a safer order is a real answer to a different problem."
+          },
+          {
+            "title": "See what 'past the wall' really means",
+            "body": "At n = 4 the score is zero, and perplexity has risen to 392 against n = 2's 186. The table is bigger, more specific and strictly worse. This is the clearest possible statement of why counting does not scale: the thing you would need to count has never occurred."
+          }
+        ],
+        "answer": "n = 3, the level's own starting order — coverage 34.5% against a 30% floor, score 1.0 and three stars. Autofill confirms it by rebuilding the table at every order in range and keeping the highest one that still generalises.",
+        "takeaway": "The sparsity wall is why language modelling moved to learned representations. A neural model does not need to have seen 'the quick brown' to say something sensible about it, because similar contexts share parameters — which is the single idea separating this chapter from everything after it."
+      }
     }
   ]
 }

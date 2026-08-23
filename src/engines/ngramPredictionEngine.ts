@@ -312,6 +312,56 @@ export function findHighestViableOrder(state: NgramPredictionState): number {
   return best;
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this level's own counted table produces.
+ *
+ * Round answers are the corpus's real next word, already in state. The two
+ * tuning modes are searched by rebuilding the table at each order and
+ * smoothing value and reading the level's own metric back — the counts come
+ * from the bundled corpus at runtime, so there is nothing to look up.
+ */
+export function solve(state: NgramPredictionState): NgramPredictionState {
+  if (state.mode === 'beat-the-model') {
+    let next = state;
+    state.rounds.forEach((round, roundIndex) => {
+      next = applyAction(next, { type: 'ANSWER', roundIndex, word: round.trueNext });
+    });
+    return next;
+  }
+
+  const [nMin, nMax] = state.config.nRange ?? [state.n, state.n];
+  const [alphaMin, alphaMax] = state.config.smoothingAlphaRange ?? [state.alpha, state.alpha];
+  const alphas = [state.alpha, 0.001, 0.01, 0.05, 0.1, 0.25, 0.5, 1].filter(
+    (value, index, all) => value >= alphaMin && value <= alphaMax && all.indexOf(value) === index
+  );
+
+  const comparator = state.rules.passCriteria.comparator;
+  const better = (candidate: number, incumbent: number) =>
+    comparator === 'gte' ? candidate > incumbent : candidate < incumbent;
+
+  let best: NgramPredictionState | null = null;
+  let bestValue = 0;
+
+  for (let n = nMin; n <= nMax; n++) {
+    for (const alpha of alphas) {
+      let candidate = applyAction(state, { type: 'SET_N', value: n });
+      candidate = applyAction(candidate, { type: 'SET_ALPHA', value: alpha });
+      const value = evaluate(candidate).value;
+      if (!Number.isFinite(value)) continue;
+      if (best === null || better(value, bestValue)) {
+        best = candidate;
+        bestValue = value;
+      }
+    }
+  }
+
+  return best ?? state;
+}
+
 export function evaluate(state: NgramPredictionState): ScoreResult {
   switch (state.mode) {
     case 'beat-the-model': {
