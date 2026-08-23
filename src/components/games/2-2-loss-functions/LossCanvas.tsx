@@ -16,6 +16,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type LossMinimizationAction,
   type LossMinimizationConfig,
   type LossMinimizationState,
@@ -23,6 +24,7 @@ import {
 } from '@/engines/lossMinimizationEngine';
 import { Button, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules, ScoreResult } from '@/types/game';
 
@@ -57,17 +59,28 @@ export function LossCanvas({ level, onScore, onSubmit }: GameComponentProps) {
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: LossMinimizationState;
   dispatch: (action: LossMinimizationAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: LossMinimizationState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -85,6 +98,17 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the sliders moved to the line that really
+  // minimises this level's own loss, or the quiz answered.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

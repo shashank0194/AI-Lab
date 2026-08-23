@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   computeLoss,
   type LossMinimizationConfig,
 } from '@/engines/lossMinimizationEngine';
@@ -191,5 +192,50 @@ describe('lossMinimizationEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('lossMinimizationEngine — solve', () => {
+  it('finds the least-squares line for the clean data', () => {
+    const solved = solve(initState(configFor(0), rulesFor(0)));
+    const result = evaluate(solved);
+
+    expect(solved.slope).toBeCloseTo(1.99, 1);
+    expect(solved.intercept).toBeCloseTo(1.04, 1);
+    expect(result.value).toBeLessThan(0.1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('keeps the outlier level on the clean line, where absolute error wants it', () => {
+    const solved = solve(initState(configFor(1), rulesFor(1)));
+    const result = evaluate(solved);
+
+    // The four well-behaved points lie exactly on y = x + 1, and minimising
+    // absolute error leaves the line there rather than reaching for the outlier.
+    expect(solved.slope).toBeCloseTo(1, 2);
+    expect(solved.intercept).toBeCloseTo(1, 2);
+    expect(result.value).toBeCloseTo(2, 2);
+    expect(result.stars).toBe(3);
+  });
+
+  it('finds a different line when the same points are scored by squared error', () => {
+    // The contrast the level is built on: same data, other loss, other answer.
+    const squared = solve({ ...initState(configFor(1), rulesFor(1)), lossType: 'mse' });
+    expect(squared.slope).toBeGreaterThan(2);
+    expect(computeLoss('mse', configFor(1).points!, squared.slope, squared.intercept)).toBeLessThan(
+      computeLoss('mse', configFor(1).points!, 1, 1)
+    );
+  });
+
+  it('answers every scenario in the loss-matching quiz', () => {
+    const config = configFor(2);
+    const solved = solve(initState(config, rulesFor(2)));
+    const result = evaluate(solved);
+
+    for (const scenario of config.scenarios!) {
+      expect(solved.answers[scenario.id]).toBe(scenario.answer);
+    }
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
   });
 });

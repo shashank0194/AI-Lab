@@ -55,7 +55,30 @@
         "Look at how much y grows each time x increases by 1 — that growth rate is your slope. Then check where the line should sit when x=0 for your intercept.",
         "From x=0 to x=4, y climbs from about 1.1 to about 9.1 — roughly 2 units of y per 1 unit of x. That puts the intercept, the value at x=0, close to 1.",
         "Slope ≈ 2.0, intercept ≈ 1.0 (precisely, about 1.99 and 1.04) — that's the true least-squares fit and lands in three-star range."
-      ]
+      ],
+      "solution": {
+        "problem": "Five points, two sliders, and one number to push down: mean squared error, the average of the squared vertical gaps between your line and the data. Three stars needs the error under 0.10, which on this data means finding the genuine least-squares fit rather than something that merely looks close.",
+        "steps": [
+          {
+            "title": "Read the slope off the data before touching a slider",
+            "body": "The points are (0, 1.1), (1, 2.9), (2, 5.2), (3, 6.8), (4, 9.1). Each step of 1 in x raises y by roughly 2, and over the whole span y climbs from 1.1 to 9.1 — 8 units of y across 4 of x. That is a slope of about 2. The intercept is just where the line sits at x = 0, which the first point puts near 1."
+          },
+          {
+            "title": "Start from the right place, because the sliders start nowhere",
+            "body": "The level opens at slope 0, intercept 0 — a flat line along the axis — which scores 33.1. Moving to roughly the right shape is worth more than any amount of fine-tuning afterwards: slope 2, intercept 1 already scores 0.022, comfortably inside the three-star band."
+          },
+          {
+            "title": "Refine, and notice how little is left to win",
+            "body": "The true least-squares fit is slope 1.99, intercept 1.04, scoring 0.0214. The round numbers score 0.0220. The difference between a good eyeball fit and the mathematically optimal one is six thousandths of a point here — squared error is extremely flat near its minimum, which is exactly why gradient descent slows down as it approaches one."
+          },
+          {
+            "title": "Understand what squaring does",
+            "body": "Because each gap is squared, a point 2 away from the line contributes four times what a point 1 away does. The fit is therefore pulled towards whichever points are furthest out. On clean data like this that is harmless and helpful. The next level is what happens when it is not."
+          }
+        ],
+        "answer": "Slope ≈ 1.99, intercept ≈ 1.04 — an MSE of 0.021 and three stars. Slope 2.0 and intercept 1.0 scores 0.022 and is equally three stars. Autofill searches the level's own loss surface over both sliders and sets the exact minimum.",
+        "takeaway": "A loss function is a statement about which mistakes you mind most, written as arithmetic. Everything a model learns is downstream of that choice, and squaring the error is a choice — not a neutral default."
+      }
     },
     {
       "id": "2-2-l2",
@@ -94,7 +117,30 @@
         "Four of the five points sit exactly on a clean line — find that line first, then decide how much the fifth (outlier) point should be allowed to pull it.",
         "Under absolute error, one huge miss costs proportionally the same per unit as several small misses — it doesn't get squared into dominance. That means the line barely needs to move to accommodate the outlier at all.",
         "Slope = 1, intercept = 1 (the exact line through the four normal points) gives MAE = 2.0, comfortably inside three stars — the outlier's own error is large (10) but MAE only counts it linearly, not quadratically."
-      ]
+      ],
+      "solution": {
+        "problem": "The same interface, one changed dataset and one changed loss. Four points sit exactly on y = x + 1, and the fifth is (4, 15) — far above the rest. The score is now mean absolute error, and the level exists to show you that this changes the answer, not just the number.",
+        "steps": [
+          {
+            "title": "Find the clean line first",
+            "body": "(0,1), (1,2), (2,3), (3,4) lie exactly on y = x + 1: slope 1, intercept 1. Four of the five points can be fitted perfectly. The only question the level asks is how far the fifth point should be allowed to drag that line."
+          },
+          {
+            "title": "Work out what absolute error wants",
+            "body": "Under absolute error, moving the line one unit towards the outlier saves one unit of error there and costs a unit spread across the four points it moves away from. That is a losing trade, so the optimum does not move at all: slope 1, intercept 1, MAE = 2.0 — the outlier's 10-unit miss divided across five points. That is a three-star answer."
+          },
+          {
+            "title": "Watch squared error make a different call on the same data",
+            "body": "Switch the comparison on and the point becomes concrete. Under MSE, the best line is slope 3, intercept −1 — nowhere near the four clean points. That line has an MSE of 8.0 against the clean line's 20.0, so squared error genuinely prefers it, and it is genuinely a worse description of the data. One outlier, squared, outweighs four exact fits."
+          },
+          {
+            "title": "Read the two scores side by side",
+            "body": "The clean line: MAE 2.0, MSE 20.0. The squared-error line: MAE 2.4, MSE 8.0. Each loss ranks them oppositely, which is the whole demonstration — 'best fit' is meaningless until you say best under what."
+          }
+        ],
+        "answer": "Slope 1, intercept 1 — the exact line through the four well-behaved points, MAE 2.0 and three stars. Autofill searches the level's active loss surface, which under absolute error lands on exactly that line.",
+        "takeaway": "Robustness to outliers is a property of the loss, not of the model. This is why median-based and MAE-based fits are the standard advice for messy real data, and why a single mislabelled row can quietly ruin a squared-error model."
+      }
     },
     {
       "id": "2-2-l3",
@@ -142,7 +188,30 @@
         "Ask what each scenario actually punishes: does it care about outliers proportionally, quadratically, about calibrated confidence, or only about examples near a decision boundary?",
         "Mansions skewing house prices badly is a call for a loss that doesn't overreact to big misses. Needing calibrated probabilities points to the loss built for probabilities. 'Only care about examples near the boundary' names a loss by its own definition.",
         "House prices with outliers → MAE. Calibrated spam probabilities → cross-entropy. Margin-based, boundary-only → hinge. Every-error-matters-squared temperature forecasting → MSE."
-      ]
+      ],
+      "solution": {
+        "problem": "Four scenarios, four losses, one each. No sliders and no data — this level checks whether you can read a problem description and name the loss whose definition matches what the description says it cares about.",
+        "steps": [
+          {
+            "title": "House prices with a handful of mansions → MAE",
+            "body": "'A handful of mansions skew the dataset badly' is the outlier problem from the previous level, stated in words. Squared error would let those few properties dominate the fit; absolute error charges them in proportion to their size rather than its square, so the line stays with the bulk of the data."
+          },
+          {
+            "title": "Spam with calibrated probabilities → cross-entropy",
+            "body": "The requirement is not just the right label but a trustworthy probability. Cross-entropy is the loss defined on probability distributions — it is minimised exactly when the predicted probability matches the true frequency, which is what 'calibrated' means. Optimising accuracy or squared error gives you a classifier that is right often and confident arbitrarily."
+          },
+          {
+            "title": "Only examples near the boundary → hinge",
+            "body": "Hinge loss is zero for any example already classified correctly by more than the margin, and grows linearly for the rest. That means points far on the right side contribute nothing to the gradient at all — the model is shaped entirely by the examples near the boundary. This is the support-vector machine's defining property, and the scenario is quoting its definition."
+          },
+          {
+            "title": "Errors matter in proportion to their square → MSE",
+            "body": "This one names the formula outright. When large deviations really are disproportionately costly — a temperature forecast off by 10 degrees is far worse than ten forecasts off by 1 — squaring is the right modelling choice rather than a default worth apologising for."
+          }
+        ],
+        "answer": "House prices → MAE; spam probabilities → cross-entropy; margin-based classifier → hinge; temperature forecasting → MSE. Autofill selects each scenario's answer for 4/4 and three stars.",
+        "takeaway": "Choosing a loss is where you encode what you actually want, and it is the step most likely to be skipped. A model trained on the wrong loss will optimise faithfully towards the wrong thing, and no amount of tuning downstream will tell you that is what happened."
+      }
     }
   ]
 }

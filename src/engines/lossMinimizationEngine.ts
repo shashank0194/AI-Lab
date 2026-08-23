@@ -145,6 +145,98 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The line that actually minimises this level's own loss, or the scenario
+ * answers the level defines.
+ *
+ * The fit is searched rather than solved in closed form on purpose: least
+ * squares has a formula, absolute error does not, and a search over the real
+ * loss surface is the same procedure for both — which is also the honest
+ * demonstration, since the point of the outlier level is that the two losses
+ * put the line in different places.
+ */
+export function solve(state: LossMinimizationState): LossMinimizationState {
+  if (state.mode === 'match-loss') {
+    let next = state;
+    for (const scenario of state.config.scenarios ?? []) {
+      next = applyAction(next, {
+        type: 'ANSWER_SCENARIO',
+        scenarioId: scenario.id,
+        answer: scenario.answer,
+      });
+    }
+    return next;
+  }
+
+  const best = bestFit(state);
+  return applyAction(applyAction(state, { type: 'SET_SLOPE', value: best.slope }), {
+    type: 'SET_INTERCEPT',
+    value: best.intercept,
+  });
+}
+
+/**
+ * Grid search over the level's own slider ranges, then three rounds of local
+ * refinement around the winner. Ends up accurate to about a thousandth in each
+ * parameter, which is finer than the sliders can express anyway.
+ */
+function bestFit(state: LossMinimizationState): { slope: number; intercept: number } {
+  const points = state.config.points ?? [];
+  const [slopeMin, slopeMax] = state.config.slopeRange ?? [-10, 10];
+  const [interceptMin, interceptMax] = state.config.interceptRange ?? [-10, 10];
+
+  let bestSlope = state.slope;
+  let bestIntercept = state.intercept;
+  let bestLoss = Infinity;
+
+  const sweep = (
+    fromSlope: number,
+    toSlope: number,
+    fromIntercept: number,
+    toIntercept: number,
+    steps: number
+  ) => {
+    const slopeStep = (toSlope - fromSlope) / steps;
+    const interceptStep = (toIntercept - fromIntercept) / steps;
+    for (let i = 0; i <= steps; i++) {
+      const slope = fromSlope + slopeStep * i;
+      for (let j = 0; j <= steps; j++) {
+        const intercept = fromIntercept + interceptStep * j;
+        const loss = computeLoss(state.lossType, points, slope, intercept);
+        if (loss < bestLoss) {
+          bestLoss = loss;
+          bestSlope = slope;
+          bestIntercept = intercept;
+        }
+      }
+    }
+    return { slopeStep, interceptStep };
+  };
+
+  let { slopeStep, interceptStep } = sweep(slopeMin, slopeMax, interceptMin, interceptMax, 120);
+  for (let round = 0; round < 3; round++) {
+    const centreSlope = bestSlope;
+    const centreIntercept = bestIntercept;
+    ({ slopeStep, interceptStep } = sweep(
+      Math.max(slopeMin, centreSlope - slopeStep),
+      Math.min(slopeMax, centreSlope + slopeStep),
+      Math.max(interceptMin, centreIntercept - interceptStep),
+      Math.min(interceptMax, centreIntercept + interceptStep),
+      40
+    ));
+  }
+
+  // Two decimals: what the sliders can hold, and what a player would read off.
+  return {
+    slope: Math.round(bestSlope * 100) / 100,
+    intercept: Math.round(bestIntercept * 100) / 100,
+  };
+}
+
 export function evaluate(state: LossMinimizationState): ScoreResult {
   if (state.mode === 'match-loss') {
     const scenarios = state.config.scenarios ?? [];
