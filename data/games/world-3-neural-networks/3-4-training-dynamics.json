@@ -50,7 +50,30 @@
         "Each line really was trained at one of the four rates on offer — read the shape, not just where it ends. A rate that's too small barely moves the loss at all; one that's too large can spike before it (maybe) settles.",
         "Read them as a spectrum: the flattest curve is the smallest rate, the one that plunges cleanly to the lowest loss is a well-tuned middle rate, and any curve that shoots up high before coming back down is the largest rate — it's covering too much ground per step to be stable.",
         "Checked against this exact run (seed 13): the curve running 0.673 → 0.017 is lr = 1; the one barely moving, 0.713 → 0.703, is lr = 0.001; the one drifting down slowly, 0.708 → 0.559, is lr = 0.05; and the one spiking above 13 before settling near 4.9 is lr = 10 — it never recovers within these 120 epochs."
-      ]
+      ],
+      "solution": {
+        "problem": "Four loss curves, each produced by really training the same network at a different learning rate — 0.001, 0.05, 1 and 10 — shown in shuffled order. You match each curve to the rate behind it. There is no stored answer key: the curves are the output of four real training runs.",
+        "steps": [
+          {
+            "title": "Learn the four signatures",
+            "body": "Too small: the curve slopes down gently and is still descending when the run ends — it was never going to arrive. Just right: a fast drop that flattens near zero and stays there. Too large: a noisy, jagged descent that oscillates instead of settling. Far too large: the loss goes up, often immediately and dramatically, because each step overshoots further than the last."
+          },
+          {
+            "title": "Anchor the two extremes first",
+            "body": "0.001 and 10 are unmistakable and nothing else looks like them, so identify those two and the remaining pair is a coin flip you can then resolve carefully. That is also the practical debugging order when you meet an unfamiliar training curve."
+          },
+          {
+            "title": "Separate 'slow' from 'stuck'",
+            "body": "The 0.001 curve is the one that looks like it would eventually work — steadily downhill, just far too slowly for the 120 epochs on offer. That is the distinction worth internalising: a low learning rate does not produce a flat line, it produces an unfinished one."
+          },
+          {
+            "title": "Check against what this level really generated",
+            "body": "On this level's seed the curves in display order come from learning rates 1, 0.001, 0.05 and 10. So the smooth successful one is the third, the flat-ish slow one is the second, and the two ugly ones bracket them."
+          }
+        ],
+        "answer": "In display order: 1, 0.001, 0.05, 10. Autofill matches each curve to the learning rate that really produced it, for 4/4 and three stars.",
+        "takeaway": "The loss curve is the main diagnostic instrument in training, and most of what it tells you is about the learning rate. Reading the difference between 'too slow', 'right', 'unstable' and 'diverging' at a glance is a skill that transfers to every model you will ever train."
+      }
     },
     {
       "id": "3-4-l2",
@@ -87,7 +110,30 @@
         "Epochs are fixed here, so batch size decides how many weight updates you actually get: a batch of 1 gets far more updates than a batch of 128 in the same 250 epochs. Try the small end of the range first.",
         "Once you've picked a batch size, the learning rate needs raising to match — a small batch with the default learning rate is stable but slow, and small batch plus a low rate wastes most of those extra updates. Push both down in batch size and up in learning rate together.",
         "Checked directly: batch size 1 at the default learning rate (0.08) already clears 1 star (loss ≈ 0.0026); raising the learning rate to 0.15 at batch size 1 clears 3 stars (loss ≈ 0.0017, target ≤ 0.002). At the other end, batch size 128 fails to pass even at the maximum allowed learning rate (0.5, loss ≈ 0.106) — too few, too noisy updates to recover in this budget."
-      ]
+      ],
+      "solution": {
+        "problem": "The epoch count is locked at 250, so the only real dial is batch size. Smaller batches mean more weight updates per epoch — and more noise in each one. The score is final validation loss, with three stars at 0.002, which is a demanding bar.",
+        "steps": [
+          {
+            "title": "Count the updates each batch size buys",
+            "body": "With 160 training samples and 250 epochs: batch 128 gives 500 updates, batch 16 gives 2,500, batch 4 gives 10,000 and batch 1 gives 40,000. The epoch budget is fixed, so choosing a batch size is choosing how many times the weights are allowed to move."
+          },
+          {
+            "title": "Read the measured result",
+            "body": "At the shipped learning rate of 0.08: batch 128 finishes at a loss of 0.715 with 53.7% accuracy — barely better than guessing. Batch 32 gives 0.541, batch 16 gives 0.242, batch 8 gives 0.036, batch 4 gives 0.013 and batch 1 gives 0.0026. Every halving of the batch roughly halves the loss, over more than two orders of magnitude."
+          },
+          {
+            "title": "Understand what the noise is doing",
+            "body": "Small batches give noisy gradient estimates, and that is usually described as a cost. Here it is not: each update is cheap and there are many, so the run makes far more progress per epoch, and the noise acts as a mild regulariser. The real cost of batch size 1 is wall-clock time and lost parallelism — neither of which this level's metric charges you for, which is worth noticing."
+          },
+          {
+            "title": "Nudge the learning rate too",
+            "body": "The rate slider is live. At batch 1 with η raised from 0.08 to 0.15, the loss drops further to 0.00168. Batch size and learning rate are coupled — the standard rule of thumb is to scale them together — so tuning one without the other leaves value on the table."
+          }
+        ],
+        "answer": "Batch size 1 with the learning rate raised to about 0.15 — final validation loss 0.0017 at 100% accuracy, three stars. Autofill trains every batch size the level offers at several rates and keeps that pair.",
+        "takeaway": "Batch size is a compute decision wearing a statistics costume. At a fixed number of epochs it decides how many times your model gets to learn anything; in the real world it is chosen for hardware utilisation, and the learning rate is then adjusted to match."
+      }
     },
     {
       "id": "3-4-l3",
@@ -127,7 +173,30 @@
         "The budget is spent in updates, not epochs — a smaller batch size or more epochs both burn through it faster. Check the projected-updates meter before you run; overspending gets charged straight back into your score as a penalty on top of the loss.",
         "Architecture size isn't what's holding this back on the spiral dataset — the activation is. tanh's derivative shrinks the gradient the same way it did in the vanishing-gradient chapter, and no amount of budget rescues it. A rectifying activation doesn't have that problem.",
         "Checked directly: tanh scores 0 stars at every batch size and learning rate tried, spending the full 6000-update budget and still stuck around 0.55–0.65 loss. Swapping to ReLU with the same architecture, learning rate 0.2 and batch size 16 reaches about 0.086 loss — 3 stars — using exactly the 6000-update budget."
-      ]
+      ],
+      "solution": {
+        "problem": "The spiral, and a hard ceiling of 6,000 weight updates. Epochs, batch size, learning rate, architecture and activation are all live, and updates are epochs × ceil(samples ÷ batch), so the dials are not independent. Overspending the budget is charged back into the score, so the level cannot be won by simply training longer.",
+        "steps": [
+          {
+            "title": "Discover that the shipped activation cannot win",
+            "body": "Before optimising anything, check the default. With tanh, the run finishes around a loss of 0.653 whatever you do — batch 16 for 200 epochs gives 0.653, batch 16 for 428 epochs gives 0.653, batch 4 gives 0.653, batch 64 for the full 1,200 epochs gives 0.653. All are inside budget and all fail. This is the same wall as chapter 3.2's spiral: tanh's gradients vanish across the layers before the network can organise itself."
+          },
+          {
+            "title": "Fix the activation first, then spend the budget",
+            "body": "Switching to ReLU changes what the other dials are even worth tuning for. Only after that does the compute question become interesting, because now there is a run that can actually converge."
+          },
+          {
+            "title": "Turn the budget into a batch-size decision",
+            "body": "6,000 updates buys 150 epochs at batch 4 (40 updates each), or 375 at batch 16, or 1,200 at batch 64 and still leaves change. Measured, the best use of the budget is batch 4 for 150 epochs at η = 0.3: validation loss 0.0487 at 98.75% accuracy, using exactly 6,000 updates. Fewer, larger, more stable updates lose to more, noisier ones on this data."
+          },
+          {
+            "title": "Respect the penalty",
+            "body": "Going over budget adds (overspend ÷ budget) × 0.5 to your loss. A run that uses double the budget is charged 0.5 — more than the entire difference between a good run and a failing one. There is no version of this level where brute force is the answer, which is the point."
+          }
+        ],
+        "answer": "ReLU, one hidden layer of 8, batch size 4, learning rate 0.3, 150 epochs — exactly 6,000 updates, validation loss 0.049, three stars. Autofill trains through the ordered candidate settings and keeps that one.",
+        "takeaway": "Every real training decision is made under a compute budget, and the first question is never \"how do I tune this\" but \"is this configuration capable of the answer at all\". Fixing the activation was worth more than every other dial on this level combined."
+      }
     }
   ]
 }

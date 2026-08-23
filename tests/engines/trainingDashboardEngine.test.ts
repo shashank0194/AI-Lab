@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   projectedUpdates,
   type TrainingDashboardConfig,
 } from '@/engines/trainingDashboardEngine';
@@ -200,5 +201,50 @@ describe('trainingDashboardEngine — level config coverage', () => {
       const result = evaluate(state);
       expect(result.metric).toBe(level.passCriteria.metric);
     }
+  });
+});
+
+describe('trainingDashboardEngine — solve', () => {
+  it('matches each curve to the learning rate that really produced it', () => {
+    const solved = solve(initState(configFor(0), rulesFor(0)));
+    for (const curve of solved.curves) expect(curve.answer).toBe(curve.trueLearningRate);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('takes the small batch on the fixed-epoch level', () => {
+    const config = configFor(1);
+    const base = initState(config, rulesFor(1));
+    const solved = solve(base);
+
+    // At a locked epoch count, a smaller batch is strictly more updates, and on
+    // this data that is what the score rewards.
+    expect(solved.batchSize).toBeLessThan(config.batchSize);
+    expect(evaluate(solved).stars).toBe(3);
+
+    let big = applyAction(base, { type: 'SET_BATCH_SIZE', value: 128 });
+    big = applyAction(big, { type: 'RUN' });
+    expect(evaluate(big).value).toBeGreaterThan(evaluate(solved).value * 100);
+  });
+
+  it('spends the compute budget without overrunning it', () => {
+    const config = configFor(2);
+    const solved = solve(initState(config, rulesFor(2)));
+    const result = evaluate(solved);
+
+    expect(result.breakdown.updatesUsed).toBeLessThanOrEqual(config.updateBudget!);
+    expect(result.breakdown.budgetPenalty).toBe(0);
+    expect(result.stars).toBe(3);
+  });
+
+  it('cannot win the budget level on the shipped activation', () => {
+    // Same spiral wall as chapter 3.2: tanh stalls whatever else is tuned.
+    const config = configFor(2);
+    const base = initState(config, rulesFor(2));
+    for (const batchSize of [4, 16, 64]) {
+      let run = applyAction(base, { type: 'SET_BATCH_SIZE', value: batchSize });
+      run = applyAction(run, { type: 'RUN' });
+      expect(evaluate(run).passed).toBe(false);
+    }
+    expect(solve(base).activation).not.toBe('tanh');
   });
 });

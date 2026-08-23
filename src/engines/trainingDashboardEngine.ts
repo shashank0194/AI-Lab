@@ -266,6 +266,128 @@ export function projectedUpdates(state: TrainingDashboardState): number {
   return batches * state.epochs;
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The settings that really train best here, found by training.
+ *
+ * The curve level's answers are already in state — each curve was produced by
+ * really training at its own learning rate. The two run levels are searched,
+ * because "which batch size" and "how to spend a compute budget" are exactly
+ * the questions they ask, and because every candidate has to be a real run to
+ * be worth anything. The search is ordered and stops at the three-star band:
+ * each candidate is a full training run the player is waiting on.
+ */
+export function solve(state: TrainingDashboardState): TrainingDashboardState {
+  if (state.mode === 'diagnose-curve') {
+    let next = state;
+    for (const curve of state.curves) {
+      next = applyAction(next, {
+        type: 'MATCH_CURVE',
+        curveId: curve.id,
+        learningRate: curve.trueLearningRate,
+      });
+    }
+    return next;
+  }
+
+  const topBand = Math.min(...state.rules.starsRules.map((rule) => rule.threshold));
+
+  let best: TrainingDashboardState | null = null;
+  let bestValue = Number.POSITIVE_INFINITY;
+
+  for (const candidate of runCandidates(state)) {
+    let run = applyAction(state, { type: 'SET_ACTIVATION', value: candidate.activation });
+    run = applyAction(run, { type: 'SET_HIDDEN_LAYERS', units: candidate.hidden });
+    run = applyAction(run, { type: 'SET_BATCH_SIZE', value: candidate.batchSize });
+    run = applyAction(run, { type: 'SET_LEARNING_RATE', value: candidate.learningRate });
+    run = applyAction(run, { type: 'SET_EPOCHS', value: candidate.epochs });
+    run = applyAction(run, { type: 'RUN' });
+
+    const value = evaluate(run).value;
+    if (!Number.isFinite(value)) continue;
+    if (value < bestValue) {
+      best = run;
+      bestValue = value;
+    }
+    if (bestValue <= topBand) break;
+  }
+
+  return best ?? state;
+}
+
+interface RunCandidate {
+  hidden: number[];
+  activation: Activation;
+  batchSize: number;
+  learningRate: number;
+  epochs: number;
+}
+
+/**
+ * Ordered candidates for a run level, shipped settings first.
+ *
+ * Epochs are chosen per batch size rather than fixed: on a level with an update
+ * budget, halving the batch size doubles the updates each epoch costs, so the
+ * two cannot be picked independently. Each candidate takes the largest epoch
+ * count that still fits the budget, which is the trade-off the level is about.
+ */
+function runCandidates(state: TrainingDashboardState): RunCandidate[] {
+  const config = state.config;
+  const limits = config.architectureRange;
+  const defaultHidden = config.architecture.slice(1, -1);
+
+  const shapes: number[][] = [defaultHidden];
+  if (limits) {
+    for (const shape of [[8, 8], [12]]) {
+      if (shape.length > limits.maxHidden) continue;
+      if (shape.some((units) => units > limits.maxUnits)) continue;
+      if (shapes.some((existing) => existing.join(',') === shape.join(','))) continue;
+      shapes.push(shape);
+    }
+  }
+
+  const activations: Activation[] = [config.activation];
+  for (const option of config.activationOptions ?? []) {
+    if (!activations.includes(option)) activations.push(option);
+  }
+
+  const batchSizes = config.batchSizeOptions ?? [state.batchSize];
+  const [rateMin, rateMax] = config.learningRateRange ?? [state.learningRate, state.learningRate];
+  const rates: number[] = [];
+  for (const rate of [state.learningRate, 0.15, 0.3, 0.05]) {
+    if (rate >= rateMin && rate <= rateMax && !rates.includes(rate)) rates.push(rate);
+  }
+
+  const trainSize = state.trainSet.length;
+  const epochsFor = (batchSize: number) => {
+    if (config.epochsLocked || config.updateBudget === undefined) return config.epochs;
+    const updatesPerEpoch = Math.max(1, Math.ceil(trainSize / batchSize));
+    const affordable = Math.floor(config.updateBudget / updatesPerEpoch);
+    return Math.max(1, Math.min(config.maxEpochs ?? config.epochs, affordable));
+  };
+
+  const candidates: RunCandidate[] = [];
+  for (const hidden of shapes) {
+    for (const batchSize of batchSizes) {
+      for (const learningRate of rates) {
+        for (const activation of activations) {
+          candidates.push({
+            hidden,
+            activation,
+            batchSize,
+            learningRate,
+            epochs: epochsFor(batchSize),
+          });
+        }
+      }
+    }
+  }
+  return candidates;
+}
+
 export function evaluate(state: TrainingDashboardState): ScoreResult {
   if (state.mode === 'diagnose-curve') {
     const total = state.curves.length;

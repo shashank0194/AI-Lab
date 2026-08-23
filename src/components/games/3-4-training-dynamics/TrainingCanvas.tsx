@@ -18,6 +18,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   projectedUpdates,
   type LossCurve,
   type TrainingDashboardAction,
@@ -27,6 +28,7 @@ import {
 import type { Activation } from '@/models/tinyNetTrainer';
 import { Button, Meter, Panel, Readout, Slider, Tag, cx, formatNumber } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules, ScoreResult } from '@/types/game';
 
@@ -60,17 +62,28 @@ export function TrainingCanvas({ level, onScore, onSubmit }: GameComponentProps)
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: TrainingDashboardState;
   dispatch: (action: TrainingDashboardAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: TrainingDashboardState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -91,6 +104,17 @@ function Board({
     setResetKey((k) => k + 1);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: each curve's real learning rate, or — for the run
+  // levels — settings found by really training every candidate.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const isDiagnose = state.mode === 'diagnose-curve';
 
