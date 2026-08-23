@@ -16,12 +16,14 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type OverfitFitAction,
   type OverfitFitConfig,
   type OverfitFitState,
 } from '@/engines/overfitFitEngine';
 import { Button, Panel, Readout, Slider, Tag } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -49,17 +51,28 @@ export function OverfitCanvas({ level, onScore, onSubmit }: GameComponentProps) 
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: OverfitFitState;
   dispatch: (action: OverfitFitAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: OverfitFitState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -68,6 +81,16 @@ function Board({
 
   const resetRun = useCallback(() => dispatch({ type: 'RESET' }), [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: both dials moved to the settings that really score
+  // best on this level, each one a genuine ridge refit.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const gapMode = state.rules.passCriteria.metric === 'generalizationGap';
   const ceiling = state.config.maxValidationLoss;

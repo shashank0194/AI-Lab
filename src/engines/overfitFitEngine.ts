@@ -225,6 +225,68 @@ export function applyAction(state: OverfitFitState, action: OverfitFitAction): O
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The settings that really score best on this level, by refitting every one.
+ *
+ * A search rather than a rule, because "the right degree" is exactly what the
+ * level is asking the player to discover, and because the third level is not
+ * scored on validation loss at all — it scores the train/validation gap with a
+ * usefulness penalty attached, so the best answer there is not the best fit.
+ * Each candidate is a real ridge refit on the level's own sample, and the
+ * winner is chosen by the level's own comparator.
+ */
+export function solve(state: OverfitFitState): OverfitFitState {
+  const [degreeMin, degreeMax] = state.config.degreeLocked
+    ? [state.degree, state.degree]
+    : (state.config.degreeRange ?? [state.degree, state.degree]);
+  const [lambdaMin, lambdaMax] = state.config.lambdaRange ?? [state.lambda, state.lambda];
+
+  const comparator = state.rules.passCriteria.comparator;
+  const better = (candidate: number, incumbent: number) =>
+    comparator === 'gte' ? candidate > incumbent : candidate < incumbent;
+
+  // 0 first so an unregularised fit wins ties — on a level where the penalty
+  // changes nothing, showing λ = 0 is the more honest board.
+  const lambdas = [0, ...lambdaSweep(lambdaMin, lambdaMax, 60)].filter(
+    (value) => value >= lambdaMin && value <= lambdaMax
+  );
+
+  let best: OverfitFitState | null = null;
+  let bestValue = 0;
+
+  for (let degree = degreeMin; degree <= degreeMax; degree++) {
+    for (const lambda of lambdas) {
+      let candidate = applyAction(state, { type: 'SET_LAMBDA', value: lambda });
+      candidate = applyAction(candidate, { type: 'SET_DEGREE', value: degree });
+      const value = evaluate(candidate).value;
+      if (!Number.isFinite(value)) continue;
+      if (best === null || better(value, bestValue)) {
+        best = candidate;
+        bestValue = value;
+      }
+    }
+  }
+
+  return best ?? state;
+}
+
+/** Round λ values first, then a fine linear sweep of the level's own range. */
+function lambdaSweep(min: number, max: number, count: number): number[] {
+  if (!(max > min)) return [min];
+  const round = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.5, 2, 3].filter(
+    (value) => value >= min && value <= max
+  );
+  const swept: number[] = [];
+  for (let i = 0; i <= count; i++) {
+    swept.push(Math.round((min + ((max - min) * i) / count) * 1000) / 1000);
+  }
+  return [...round, ...swept];
+}
+
 export function evaluate(state: OverfitFitState): ScoreResult {
   const gap = Math.abs(state.validationLoss - state.trainLoss);
   const breakdown = {

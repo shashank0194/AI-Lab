@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   fitRidge,
   type OverfitFitConfig,
 } from '@/engines/overfitFitEngine';
@@ -218,5 +219,60 @@ describe('overfitFitEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('overfitFitEngine — solve', () => {
+  it('finds the degree where validation loss bottoms out', () => {
+    const config = configFor(0);
+    const base = initState(config, rulesFor(0));
+    const solved = solve(base);
+
+    expect(solved.degree).toBe(3);
+    expect(evaluate(solved).stars).toBe(3);
+    // The U-curve the level is built on: training loss keeps falling past the
+    // turning point while validation loss climbs away.
+    const twelve = applyAction(base, { type: 'SET_DEGREE', value: 12 });
+    expect(twelve.trainLoss).toBeLessThan(solved.trainLoss);
+    expect(twelve.validationLoss).toBeGreaterThan(solved.validationLoss * 5);
+  });
+
+  it('regularises the locked degree-12 fit instead of reducing it', () => {
+    const config = configFor(1);
+    const base = initState(config, rulesFor(1));
+    const solved = solve(base);
+
+    expect(config.degreeLocked).toBe(true);
+    expect(solved.degree).toBe(12);
+    expect(solved.lambda).toBeGreaterThan(0.5);
+    expect(evaluate(base).passed).toBe(false);
+    expect(evaluate(solved).stars).toBe(3);
+    // The trade the level is teaching: training loss gets worse, validation
+    // loss gets much better.
+    expect(solved.trainLoss).toBeGreaterThan(base.trainLoss);
+    expect(solved.validationLoss).toBeLessThan(base.validationLoss / 5);
+  });
+
+  it('optimises the gap the level scores, not the fit', () => {
+    const config = configFor(2);
+    const solved = solve(initState(config, rulesFor(2)));
+    const result = evaluate(solved);
+
+    expect(result.stars).toBe(3);
+    expect(result.breakdown.usefulnessPenalty).toBe(0);
+    // The ceiling is what stops "close the gap" collapsing into "fit nothing".
+    expect(solved.validationLoss).toBeLessThanOrEqual(config.maxValidationLoss!);
+  });
+
+  it('never wins the gap level by flattening the fit into uselessness', () => {
+    // A degree-1 line with heavy regularisation has a small gap in the hollow
+    // sense the level's ceiling exists to reject.
+    const config = configFor(2);
+    let flat = initState(config, rulesFor(2));
+    flat = applyAction(flat, { type: 'SET_DEGREE', value: 1 });
+    flat = applyAction(flat, { type: 'SET_LAMBDA', value: config.lambdaRange![1] });
+    const solved = solve(initState(config, rulesFor(2)));
+
+    expect(evaluate(solved).value).toBeLessThan(evaluate(flat).value);
   });
 });

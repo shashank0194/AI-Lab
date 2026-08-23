@@ -51,7 +51,30 @@
         "Start at degree 1 and slowly raise it — training loss will keep falling the whole way, but validation loss will fall for a while and then start climbing back up. The turning point is your answer, not the degree with the lowest training loss.",
         "This data was generated from a genuine cubic curve. Once the degree can express a cubic, more capacity stops helping and starts hunting for patterns in the noise instead.",
         "Degree 3 is the turning point — validation loss bottoms out there around 0.044, comfortably past three stars. Degrees 4–6 are still fine (~0.07); by degree 7 it's already overfitting."
-      ]
+      ],
+      "solution": {
+        "problem": "Twenty points drawn from a genuine cubic with noise added, split 60/40 into training and validation. You choose the polynomial degree, and the score is validation loss — error on the 40% of points the fit never saw. The whole level is the difference between fitting data and learning the thing that generated it.",
+        "steps": [
+          {
+            "title": "Watch the two curves diverge",
+            "body": "Raise the degree one notch at a time and read both losses. Training loss falls monotonically the entire way — 0.342 at degree 1, 0.131 at degree 3, 0.045 at degree 12 — because more flexibility can always fit the points you already have better. Validation loss does not: 0.120, 0.095, 0.044, then back up through 0.179 at degree 7, 0.518 at degree 9 and 0.930 at degree 12."
+          },
+          {
+            "title": "Take the turning point, not the lowest training loss",
+            "body": "Degree 3 is where validation loss bottoms out, at 0.044. That is not a coincidence — the data really was generated from a cubic, so degree 3 is the first setting with enough capacity to express the truth, and everything beyond it spends its extra flexibility fitting the noise instead."
+          },
+          {
+            "title": "Notice how quickly it gets bad",
+            "body": "Degree 12 has a training loss of 0.045, the best on the board, and a validation loss of 0.930 — twenty times worse than degree 3. That curve passes through nearly every training point and is useless. If you only ever looked at training loss you would pick it, and you would be picking the worst model available."
+          },
+          {
+            "title": "Then squeeze the last bit out",
+            "body": "The λ slider is not locked on this level. Degree 3 with λ = 0 scores 0.044; adding a small ridge penalty of about 0.13 pulls it to 0.036. Both are three stars, and the first is the answer the level is teaching. The second is a preview of the next level."
+          }
+        ],
+        "answer": "Degree 3 — validation loss 0.044 and three stars. Autofill refits every degree and λ the level allows and keeps the best of them, which is degree 3 with a small ridge penalty of about 0.13, scoring 0.036.",
+        "takeaway": "The validation split is what makes overfitting visible at all: on training data alone, more capacity always looks better. Every model-selection decision in machine learning is some version of this U-shaped curve, and the whole apparatus of held-out sets, cross-validation and early stopping exists to find its bottom."
+      }
     },
     {
       "id": "2-4-l2",
@@ -85,7 +108,30 @@
         "Degree is locked at 12 — far more flexible than this data needs — so at λ=0 it memorises the noise. Raise λ and watch validation loss fall even as training loss rises.",
         "There's a wide range of λ that works here, not one exact value. Push it up past roughly 0.5 and validation loss keeps improving, well past the point where training loss starts looking 'worse' on its own.",
         "λ ≈ 1.0 brings validation loss down to about 0.061, safely inside three stars — degree 12 does not need to be dialed back, only made expensive to use carelessly."
-      ]
+      ],
+      "solution": {
+        "problem": "The same data, but the degree is locked at 12 — deliberately far more flexible than a cubic needs — and the only dial is the ridge penalty λ, which charges the fit for the size of its coefficients. Validation loss is still the score, and it starts at 0.930: a total failure.",
+        "steps": [
+          {
+            "title": "See what an unregularised degree-12 fit does",
+            "body": "At λ = 0, training loss is 0.045 and validation loss is 0.930. The curve is threading through the training points by swinging violently between them, which needs enormous coefficients — and those swings are exactly what the unseen points fall foul of."
+          },
+          {
+            "title": "Understand what λ charges for",
+            "body": "Ridge adds λ times the sum of the squared coefficients to the thing being minimised. Wild swings need big coefficients, so they now cost something. The fit is not forbidden from using degree 12 — it is made to justify every bit of flexibility it uses, and mostly it cannot."
+          },
+          {
+            "title": "Watch the trade in real numbers",
+            "body": "λ = 0.1 already moves validation loss from 0.930 to 0.081 while training loss rises from 0.045 to 0.128. λ = 0.5 gives 0.065, λ = 1.0 gives 0.061, λ = 2.0 gives 0.064. Training loss climbs steadily the whole way — 0.128, 0.137, 0.151, 0.173 — and that is the point: the fit is being made worse at the thing that does not matter to make it better at the thing that does."
+          },
+          {
+            "title": "Note how wide the good range is",
+            "body": "Anything from about λ = 0.1 upwards is three stars here. This is not a knife-edge, which is worth knowing: regularisation strength usually has a broad plateau, and the difference between 0.5 and 1.5 is far smaller than the difference between 0 and 0.1."
+          }
+        ],
+        "answer": "λ ≈ 1.0 — validation loss 0.061 with training loss risen to 0.151, three stars. Autofill sweeps the whole λ range with the degree locked and keeps the best, landing at λ ≈ 1.07 and 0.061.",
+        "takeaway": "Capacity and regularisation are two dials on the same thing. A big model with a penalty behaves like a small model that can still reach for more when the data justifies it — which is why modern practice is to build models far larger than the data needs and then constrain them, rather than to size them exactly."
+      }
     },
     {
       "id": "2-4-l3",
@@ -120,7 +166,30 @@
         "You have two dials now — degree and λ — and the goal is a small gap, not just a small validation loss on its own. A flat, useless line also has a 'small gap' in a hollow sense, which is exactly what this level's validation-loss ceiling exists to rule out.",
         "This data comes from a sine curve, and the sample here is smaller and noisier than the last level's. A moderate degree flexible enough to bend like a sine, with a modest ridge penalty to keep it honest, closes the gap without flattening the fit into uselessness.",
         "Degree 3 with λ = 0 already gets you there — gap of about 0.02, comfortably inside three stars, with validation loss (~0.054) nowhere near the 0.1 ceiling. Degree 6 with λ around 0.3–0.5 works just as well if you want more flexibility with some insurance against it."
-      ]
+      ],
+      "solution": {
+        "problem": "Both dials are live, the data is a smaller, noisier sample from a sine, and the score changes: it is now the gap between training and validation loss, not validation loss itself. A ceiling on validation loss is attached — anything above 0.1 is charged back into the score tenfold — because otherwise the easiest way to close a gap is to fit nothing at all.",
+        "steps": [
+          {
+            "title": "Notice that this level starts already passing",
+            "body": "Worth saying plainly: the shipped settings — degree 3, λ = 0 — score a gap of 0.020, which is already three stars before you touch anything. That is a property of this level as it stands rather than something you have to find, so treat it as a sandbox for the actual question: what happens to the gap as you move each dial?"
+          },
+          {
+            "title": "Understand the metric you are now being scored on",
+            "body": "A gap is a comparison between two numbers, and there are two ways to shrink one: make validation loss better, or make training loss worse. Degree 1 with heavy λ does the second — the fit becomes a nearly flat line that is equally mediocre on both splits. The ceiling exists to reject exactly that, and it is why the level cannot be won by giving up."
+          },
+          {
+            "title": "Read what the dials do to the gap",
+            "body": "Measured on this level: degree 1 at λ = 0 gives a gap of 0.094 (two stars). Degree 3 at λ = 0 gives 0.020. Degree 5 with λ = 0.5 gives 0.065, and degree 7 with λ = 1 gives 0.071 — more penalty than this small sample needs pushes training loss up faster than it pulls validation loss down. Degree 14 with λ = 3 scores 0.328 because its validation loss of 0.124 breaches the ceiling and is charged back."
+          },
+          {
+            "title": "Find where the two losses actually meet",
+            "body": "The best settings are the ones where training and validation loss land on the same number rather than either being small: degree 10 with λ = 0.35 gives training 0.0507 and validation 0.0506, a gap of 0.00006. A degree-10 polynomial held in check by a modest penalty generalises exactly as well as it fits, which is what a closed gap means."
+          }
+        ],
+        "answer": "Degree 10 with λ ≈ 0.35 — training loss 0.0507 against validation 0.0506, a gap of about 0.0001 and three stars. Degree 3 with λ = 0, the level's own starting position, already scores 0.020 and three stars too. Autofill refits every combination and keeps the smallest genuine gap.",
+        "takeaway": "A generalisation gap is a diagnostic, not an objective. Optimising it directly invites the degenerate answer — a model that is equally bad everywhere has no gap at all — which is why the ceiling is here and why in practice you watch the gap while optimising something else."
+      }
     }
   ]
 }
