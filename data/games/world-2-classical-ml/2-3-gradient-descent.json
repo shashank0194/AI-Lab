@@ -48,7 +48,30 @@
         "Set almost any learning rate in a reasonable range and press Run repeatedly — this bowl is easy to descend, and you have a full budget of 100 steps to get there.",
         "Each step multiplies the remaining distance to the minimum by (1 − 2η). Too small an η just means more steps; too large (above η=1) makes it grow instead of shrink. Anywhere comfortably under 1 gets there well inside the step budget.",
         "η = 0.5 is the exact sweet spot for this particular bowl — it lands exactly on the minimum in a single step, since the curvature here is 2 in both directions and 1/curvature = 0.5."
-      ]
+      ],
+      "solution": {
+        "problem": "A perfectly round bowl, loss = x² + y², and one knob: the learning rate. You start at (3.5, −2.8) with 100 steps of budget, and three stars needs the final loss under 0.002. Almost anything sensible passes — the level is really asking you to find out what the knob does at both ends of its range.",
+        "steps": [
+          {
+            "title": "Write down what one step does",
+            "body": "The gradient of x² + y² is (2x, 2y), so a step replaces x with x − η·2x = x(1 − 2η). Every step multiplies your remaining distance to the minimum by the same factor, (1 − 2η). That single expression explains the entire behaviour of this level."
+          },
+          {
+            "title": "Read the three regimes off that factor",
+            "body": "If |1 − 2η| < 1 the distance shrinks and you converge. At η = 0.5 the factor is exactly zero, so one step lands precisely on the minimum. Below that you approach steadily; above it you overshoot and come back on the other side. At η = 1 the factor is −1 — you bounce between two points forever, never getting closer."
+          },
+          {
+            "title": "Check it against real runs",
+            "body": "Measured on this level: η = 0.1 converges at step 32, η = 0.25 at step 11, η = 0.5 at step 2. η = 0.9 still converges, at step 32, by overshooting and creeping back. η = 1.0 fails outright at a final loss of 20.1, and η = 1.1 diverges to 1.4 × 10¹⁷."
+          },
+          {
+            "title": "Notice what the optimum depends on",
+            "body": "η = 0.5 is exactly right because this bowl's curvature is 2 in both directions, and 1/curvature is the perfect step. That is not a universal number — it is a property of this surface. Change the curvature and the sweet spot moves, which is precisely why the next level, with wildly different curvature along each axis, cannot be solved by any single step size."
+          }
+        ],
+        "answer": "Set the learning rate to 0.5 and run — it converges at step 2 with a loss of exactly 0, for three stars. Autofill sweeps the level's own slider range, simulating each setting's real trajectory, and keeps 0.5.",
+        "takeaway": "The learning rate is not \"how fast you learn\", it is a step size measured against the curvature of the surface. Too small wastes steps, too large diverges, and the boundary between them is a property of the problem rather than of the optimiser."
+      }
     },
     {
       "id": "2-3-l2",
@@ -81,7 +104,30 @@
         "Try a working learning rate with momentum at zero first — watch how the steep axis settles quickly while the flat axis barely creeps. That crawl is the whole problem this level is about.",
         "Without momentum, no learning rate solves this in time: push it high enough to make progress on the flat axis and the steep axis blows up; keep it safe for the steep axis and the flat axis needs hundreds of steps. Momentum breaks that trade-off — it lets the flat axis keep accumulating velocity across steps instead of crawling one small step at a time.",
         "η around 0.12–0.15 with momentum around 0.8 reliably converges in well under 80 steps — comfortably inside the three-star mark. Momentum genuinely is not optional here."
-      ]
+      ],
+      "solution": {
+        "problem": "The same descent on a ravine: loss = 0.05x² + 5y², a hundred times steeper across than along. The score is how many steps it takes to converge — 120 to pass, 50 for three stars — and the level adds a momentum slider because no learning rate alone gets there.",
+        "steps": [
+          {
+            "title": "See the trade-off that has no solution",
+            "body": "The two axes want opposite things. y has curvature 10, so anything above η = 0.2 makes it oscillate and blow up. x has curvature 0.1, so at η = 0.2 it moves 2% of the way to the centre per step and needs hundreds of steps. Measured: with momentum at zero, η = 0.05, 0.12, 0.3 and 0.5 all fail to converge inside the 150-step budget. This is not a tuning failure, it is the shape of the surface."
+          },
+          {
+            "title": "Understand what momentum adds",
+            "body": "Momentum keeps a velocity between steps: v ← βv − η·gradient. On the steep axis the gradient keeps flipping sign, so the terms cancel and the oscillation is damped. On the flat axis the gradient keeps pointing the same way, so the terms accumulate and the effective step grows by roughly 1/(1 − β). At β = 0.8 that is five times the step size, on exactly the axis that needed it."
+          },
+          {
+            "title": "Tune the two together, not separately",
+            "body": "Measured on this level: η = 0.15 with β = 0.8 converges in 42 steps — three stars. η = 0.12 with β = 0.8 takes 53. Push β to 0.9 and the same η = 0.15 takes 78, because the extra velocity now overshoots along the steep axis and has to be undone. At β = 0.95 nothing converges at all within the budget. More momentum is not better; it is a second parameter with its own ceiling."
+          },
+          {
+            "title": "Recognise the shape when you meet it again",
+            "body": "This ill-conditioned valley is not a contrived surface — it is what real loss landscapes look like in most directions, which is why plain gradient descent is almost never used as-is. Momentum, RMSProp and Adam are all answers to this exact picture."
+          }
+        ],
+        "answer": "Learning rate 0.15, momentum 0.8 — converges in 42 steps, three stars. Autofill sweeps both sliders together, simulating every combination's real trajectory, and keeps that pair.",
+        "takeaway": "When one hyperparameter cannot be set well because two parts of the problem want different values, the fix is usually a mechanism that decouples them rather than a better compromise. Adaptive optimisers are that idea taken further: a separate effective step size per parameter."
+      }
     },
     {
       "id": "2-3-l3",
@@ -118,7 +164,30 @@
         "Plain gradient descent just rolls downhill from wherever it starts, and the nearest downhill direction from here leads into the shallow basin, not the deep one. You need something that can push it somewhere gradient descent alone never would.",
         "Momentum and noise each help a little on their own, but neither reliably escapes from this starting point alone — the shallow basin's pull is strong up close. Push learning rate, momentum AND noise all up together, near their maximums; this is a genuinely sensitive, almost chaotic regime, not a smooth one, so the exact combination matters.",
         "η = 0.30, momentum = 0.95, noise = 0.50 (this level's noise maximum) reaches the deep basin and lands around −1.85, past the three-star mark. If it doesn't land first try, reset and set the exact same numbers again — the run is fully deterministic, so identical settings always produce the identical result."
-      ]
+      ],
+      "solution": {
+        "problem": "Two basins: a deep one centred at (−1.5, −1.5) and a shallow one at (1.5, 1.5), plus a gentle bowl over the whole plane. You start at (1.8, 1.4) — inside the shallow one — and passing needs a final loss at or below −1.5, which only exists in the deep basin. Rolling downhill cannot get you there, because downhill from here points the wrong way.",
+        "steps": [
+          {
+            "title": "Confirm the trap before trying to escape it",
+            "body": "Run with the shipped settings and the descent settles at −1.11, the floor of the shallow basin, and reports itself converged: the gradient really is zero there. That is a local minimum, and it does not pass — the bar is −1.5. Gradient descent has no way to know a better basin exists, because it can only see the slope under its own feet."
+          },
+          {
+            "title": "Know where the good basin actually bottoms out",
+            "body": "The deep basin is worth −2 at its centre, offset by the surrounding bowl's 0.02·(x² + y²), which at (−1.5, −1.5) adds 0.09 — so its true floor is about −1.91. The three-star mark of −1.78 sits just inside that basin's walls, meaning you have to genuinely arrive, not just glance off the edge."
+          },
+          {
+            "title": "Understand why one tool is not enough",
+            "body": "Momentum can carry a run through a shallow dip, but from this start the shallow basin's own pull is strong enough to absorb it. Gradient noise can jostle a run out of a flat spot, but on its own it is far too small to cross the ridge. Measured: momentum alone at β = 0.9 stays at −1.11, and noise alone at 0.5 also stays at −1.11. Both changed the trajectory; neither changed the outcome."
+          },
+          {
+            "title": "Combine them, and expect sensitivity",
+            "body": "Together they work: high momentum builds enough velocity to cross the ridge, and noise supplies the kick that starts that crossing. Measured, η = 0.10 with β = 0.99 and noise 0.50 reaches −1.90, essentially the deep basin's floor; η = 0.30 with β = 0.95 and the same noise reaches −1.85. Nearby settings do not interpolate between those — this regime is genuinely chaotic, and the runs are only reproducible because the noise is seeded."
+          }
+        ],
+        "answer": "Learning rate 0.10, momentum 0.99, noise 0.50 — the run crosses into the deep basin and finishes around −1.90, three stars. Autofill simulates the whole grid of settings on this surface and keeps the best real trajectory.",
+        "takeaway": "Escaping a local minimum is not a matter of trying harder in the same direction; it needs something that is not the gradient. Momentum, noise, restarts and stochastic mini-batches all serve that purpose, which is why real training is never plain gradient descent on the full dataset."
+      }
     },
     {
       "id": "2-3-l4",
@@ -158,7 +227,30 @@
         "Treat this like level 1's bowl first — descend with a reasonable learning rate and see how far that alone gets you before reaching for momentum.",
         "This surface is sliced from a real trained network rather than a clean formula, so it can be lumpier than the earlier bowls — a little momentum smooths out small bumps in the descent the way it did in the ravine.",
         "This stretch level's surface currently falls back to a flat placeholder until the World 3 network chapter it slices is built, so any position already sits at loss 0 — the moment that surface is wired up for real, treat these hints as a starting point to re-verify, not a guarantee."
-      ]
+      ],
+      "solution": {
+        "problem": "The stretch level, and the one place in this chapter where the honest answer is that there is nothing to descend yet. This surface is meant to be sliced from the live-trained network in World 3's \"Layers & Forward Pass\", and that slice is not wired up — so the engine falls back to a flat plane at zero rather than inventing a landscape.",
+        "steps": [
+          {
+            "title": "Read what the board is telling you",
+            "body": "The canvas says it outright: this is a placeholder, not a fabricated surface. The engine's `liveNet` case returns 0 for every point and a zero gradient everywhere, unless a real surface function is injected. Nothing here is pretending."
+          },
+          {
+            "title": "Know what that means for the score",
+            "body": "Loss is 0 wherever you stand, the pass mark is 0.35, and three stars is 0.18 — so the level is already at three stars before you touch anything, whatever you do with the sliders. That is a real finding about this level rather than a trick: a flat surface has no minimum to find."
+          },
+          {
+            "title": "Play it anyway, for what it does show",
+            "body": "Stepping still moves the marker and still draws a trajectory, so the controls are worth a moment — the velocity behaviour with momentum is visible even on a flat surface, because momentum carries a run that has no gradient pushing it. Everything else this level wants to teach is waiting on that chapter's slice."
+          },
+          {
+            "title": "What to do when the slice lands",
+            "body": "Once a real surface is injected, this becomes the first genuinely non-analytic landscape in the course: lumpy, non-convex, and computed by numerical differences rather than a formula. Treat this level's hints as a starting point to re-verify at that point, not as a guarantee — which is exactly what its last hint already says."
+          }
+        ],
+        "answer": "Any settings pass: the surface is a flat placeholder, so loss is 0 everywhere and the level scores three stars with no interaction. Autofill runs a descent anyway, so the trajectory and the controls behave as they would on a real surface.",
+        "takeaway": "A level that admits it has nothing to measure is more useful than one that invents something to measure. The same rule runs through this whole course: when the real thing is not available, the honest move is to say so rather than to show a plausible substitute."
+      }
     }
   ]
 }

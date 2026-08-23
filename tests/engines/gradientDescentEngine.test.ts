@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   surfaceValue,
   surfaceGradient,
   type GradientDescentConfig,
@@ -226,5 +227,64 @@ describe('gradientDescentEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value) || Number.isNaN(result.value)).toBe(true);
     }
+  });
+});
+
+describe('gradientDescentEngine — solve', () => {
+  it('lands the quadratic bowl on its exact minimum', () => {
+    const config = configFor(0);
+    const solved = solve(initState(config, rulesFor(0)));
+    const result = evaluate(solved);
+
+    // η = 0.5 against a curvature of 2 steps straight onto the minimum.
+    expect(solved.learningRate).toBeCloseTo(0.5, 3);
+    expect(result.value).toBe(0);
+    expect(result.stars).toBe(3);
+  });
+
+  it('needs momentum to get the ravine inside its step budget', () => {
+    const config = configFor(1);
+    const base = initState(config, rulesFor(1));
+    const solved = solve(base);
+
+    // Every plain-gradient run on this surface fails: too small a step crawls
+    // along the flat axis, too large a one oscillates across the steep one.
+    for (const learningRate of [0.05, 0.12, 0.3, 0.5]) {
+      let plain = applyAction(base, { type: 'SET_LEARNING_RATE', value: learningRate });
+      plain = applyAction(plain, { type: 'RUN', steps: config.maxSteps });
+      expect(plain.convergedAtStep).toBeNull();
+    }
+
+    expect(solved.momentum).toBeGreaterThan(0);
+    expect(evaluate(solved).value).toBeLessThanOrEqual(50);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('escapes the shallow basin the default settings get stuck in', () => {
+    const config = configFor(2);
+    const base = initState(config, rulesFor(2));
+    const stuck = applyAction(base, { type: 'RUN', steps: config.maxSteps });
+
+    // Rolling downhill from this start lands in the shallow basin at about
+    // −1.11, which does not even pass.
+    expect(evaluate(stuck).value).toBeGreaterThan(-1.5);
+    expect(evaluate(stuck).passed).toBe(false);
+
+    const solved = solve(base);
+    expect(evaluate(solved).value).toBeLessThan(-1.78);
+    expect(evaluate(solved).stars).toBe(3);
+    // Getting out needs both of the tools this level adds, not just one.
+    expect(solved.momentum).toBeGreaterThan(0);
+    expect(solved.noiseScale).toBeGreaterThan(0);
+  });
+
+  it('is deterministic, so the same level always fills the same way', () => {
+    const config = configFor(2);
+    const first = solve(initState(config, rulesFor(2)));
+    const second = solve(initState(config, rulesFor(2)));
+    expect(second.learningRate).toBe(first.learningRate);
+    expect(second.momentum).toBe(first.momentum);
+    expect(second.noiseScale).toBe(first.noiseScale);
+    expect(evaluate(second).value).toBe(evaluate(first).value);
   });
 });

@@ -238,6 +238,97 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The settings that actually descend this surface, found by running it.
+ *
+ * There is no formula to reach for here: the levels differ in what they are
+ * scored on (final loss, steps to converge) and in what escaping their surface
+ * needs (a plain step size, momentum, gradient noise), and level 3's basin is
+ * openly chaotic — its own hint says the exact combination matters. So the fill
+ * simulates the real dynamics across a grid of settings and keeps whichever run
+ * the level's own comparator prefers. Deterministic, because the noise is
+ * seeded: the same grid point always produces the same trajectory.
+ */
+export function solve(state: GradientDescentState): GradientDescentState {
+  const [lrMin, lrMax] = state.config.learningRateRange ?? [state.learningRate, state.learningRate];
+  const [momentumMin, momentumMax] = state.config.momentumRange ?? [0, 0];
+  const [noiseMin, noiseMax] = state.config.noiseRange ?? [0, 0];
+
+  const learningRates = learningRateCandidates(Math.max(lrMin, 1e-4), lrMax);
+  const momenta = spread(momentumMin, momentumMax, [0, 0.5, 0.8, 0.9, 0.95, 0.99]);
+  const noises = spread(noiseMin, noiseMax, [0, 0.1, 0.2, 0.3, 0.4, 0.5]);
+
+  const comparator = state.rules.passCriteria.comparator;
+  const better = (candidate: number, incumbent: number) =>
+    comparator === 'gte' ? candidate > incumbent : candidate < incumbent;
+
+  let bestState: GradientDescentState | null = null;
+  let bestValue = 0;
+
+  for (const learningRate of learningRates) {
+    for (const momentum of momenta) {
+      for (const noiseScale of noises) {
+        let run = applyAction(state, { type: 'RESET' });
+        run = applyAction(run, { type: 'SET_LEARNING_RATE', value: learningRate });
+        run = applyAction(run, { type: 'SET_MOMENTUM', value: momentum });
+        run = applyAction(run, { type: 'SET_NOISE', value: noiseScale });
+        run = applyAction(run, { type: 'RUN', steps: state.config.maxSteps });
+
+        const value = evaluate(run).value;
+        // A diverged run reports NaN or an enormous loss; neither is an answer.
+        if (!Number.isFinite(value)) continue;
+        if (bestState === null || better(value, bestValue)) {
+          bestState = run;
+          bestValue = value;
+        }
+      }
+    }
+  }
+
+  return bestState ?? state;
+}
+
+/**
+ * Round numbers first, then a geometric sweep.
+ *
+ * The order matters as a tie-break: a run that ties on the metric keeps the
+ * incumbent, so putting the values a player would plausibly type first means
+ * the fill shows 0.5 rather than 0.4759 when both reach the same place. It also
+ * matters for coverage — a pure geometric sweep of this range steps straight
+ * over 0.15, which converges the ravine in 42 steps against the 46 of the
+ * nearest sweep point, and over 0.3, which is the best setting found anywhere
+ * on the multi-basin surface.
+ */
+function learningRateCandidates(min: number, max: number): number[] {
+  const round = [0.01, 0.02, 0.05, 0.08, 0.1, 0.12, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.6, 0.8, 1];
+  const inside = round.filter((value) => value >= min && value <= max);
+  const swept = geometric(min, max, 24);
+  return [...inside, ...swept];
+}
+
+/** Geometric sweep, so small learning rates get as much attention as large ones. */
+function geometric(min: number, max: number, count: number): number[] {
+  if (!(max > min)) return [min];
+  const values: number[] = [];
+  for (let i = 0; i < count; i++) {
+    values.push(min * (max / min) ** (i / (count - 1)));
+  }
+  return values;
+}
+
+/** The candidates that fall inside a level's own slider range, always including its floor. */
+function spread(min: number, max: number, candidates: number[]): number[] {
+  const inside = candidates.filter((value) => value >= min && value <= max);
+  if (inside.length === 0) return [min];
+  if (!inside.includes(min)) inside.unshift(min);
+  if (!inside.includes(max) && max > min) inside.push(max);
+  return inside;
+}
+
 export function evaluate(state: GradientDescentState): ScoreResult {
   const [x, y] = [state.position[0]!, state.position[1]!];
   const loss = valueAt(state, x, y);

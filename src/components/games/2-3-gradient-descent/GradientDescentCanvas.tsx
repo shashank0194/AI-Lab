@@ -15,6 +15,7 @@ import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Check, ChevronsRight, RotateCcw, StepForward } from 'lucide-react';
 import {
   initState,
+  solve,
   applyAction,
   evaluate,
   surfaceValue,
@@ -24,6 +25,7 @@ import {
 } from '@/engines/gradientDescentEngine';
 import { Button, Panel, Readout, Slider, Tag } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -55,17 +57,28 @@ export function GradientDescentCanvas({ level, onScore, onSubmit }: GameComponen
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: GradientDescentState;
   dispatch: (action: GradientDescentAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: GradientDescentState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -73,6 +86,16 @@ function Board({
 
   const resetRun = useCallback(() => dispatch({ type: 'RESET' }), [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the sliders set to settings that really descend
+  // this surface, and the run played out so the trajectory is on screen.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const exhausted = state.steps >= state.config.maxSteps;
   const [x, y] = [state.position[0]!, state.position[1]!];
