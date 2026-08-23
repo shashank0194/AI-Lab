@@ -263,6 +263,141 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answer this level's own live vectors produce.
+ *
+ * Nothing is read from `expectedNearest` — that field is documentation of what
+ * the author measured, not an answer key, and the whole point of the chapter is
+ * that the ranking is recomputed from real embeddings every time. The fill
+ * takes whatever the model ranks first on this device.
+ */
+export function solve(state: VectorArithmeticState): VectorArithmeticState {
+  switch (state.mode) {
+    case 'fixed-analogy':
+      return solveAnalogy(state);
+    case 'free-terms':
+      return solveFreeTerms(state);
+    case 'estimate-similarity':
+      return solveEstimates(state);
+  }
+}
+
+/** Guess whatever the arithmetic actually lands nearest to. */
+function solveAnalogy(state: VectorArithmeticState): VectorArithmeticState {
+  // A guess after the reveal is ignored on purpose, so a player who peeked
+  // first needs the board rewound before the fill can land.
+  const base = state.revealed ? applyAction(state, { type: 'RESET' }) : state;
+  const nearest = base.ranked[0];
+  if (!nearest) return base;
+  return applyAction(base, { type: 'GUESS', word: nearest.word });
+}
+
+/**
+ * The best three-term combination that does not simply name the target.
+ *
+ * Searched rather than hard-coded: every triple of words the level has real
+ * vectors for is tried in every add/subtract arrangement, and the winner is the
+ * one that ranks the target highest — broken, among the many combinations that
+ * put it first, by which one lands *nearest* the target in absolute cosine
+ * terms. Excluding the target itself is the one piece of judgement here, and it
+ * is the difference between demonstrating the analogy and demonstrating that
+ * `paris + x − x` is still paris.
+ */
+function solveFreeTerms(state: VectorArithmeticState): VectorArithmeticState {
+  const winner = bestCombination(state);
+  if (!winner) return state;
+
+  // A player who has already spent every attempt cannot commit another one, and
+  // the score reads from the best *committed* attempt — so rewind first.
+  const exhausted = state.attempts >= (state.config.maxAttempts ?? Infinity);
+  let next = exhausted ? applyAction(state, { type: 'RESET' }) : state;
+
+  winner.forEach((term, index) => {
+    next = applyAction(next, {
+      type: 'SET_TERM',
+      index,
+      word: term.word,
+      vector: state.vectors[term.word]!,
+      op: term.op,
+    });
+  });
+  return applyAction(next, { type: 'COMMIT_ATTEMPT' });
+}
+
+/**
+ * Exhaustive search for the term chain that ranks the target highest.
+ *
+ * The second sort key is deliberately the target's own similarity rather than
+ * its lead over the runner-up. Measured against the real model, ranking by lead
+ * picked `france − germany − italy` for level 2: paris does come first, but at a
+ * cosine of −0.20, because subtracting two countries pushes everything else
+ * further away rather than landing anywhere near paris. Ranking by absolute
+ * similarity picks `tokyo − japan + france` at 0.84 — the real capital-of
+ * direction, transplanted, which is the thing the level exists to show.
+ */
+function bestCombination(state: VectorArithmeticState): ConfiguredTerm[] | null {
+  const target = state.config.target;
+  const termCount = state.terms.length;
+  if (!target || termCount === 0) return null;
+
+  const vocabulary = Object.keys(state.vectors).filter((word) => word !== target);
+  // Bounded rather than unbounded: enough to be exhaustive over the pools these
+  // levels use, and it cannot degrade into a long freeze on a future larger one.
+  const budget = 60_000;
+  const maxWords = Math.max(2, Math.floor((budget / 2 ** termCount) ** (1 / termCount)));
+  const words = vocabulary.slice(0, maxWords);
+  if (words.length === 0) return null;
+
+  let bestTerms: ConfiguredTerm[] | null = null;
+  let bestRank = -1;
+  let bestSimilarity = -Infinity;
+
+  const walk = (chosen: ConfiguredTerm[]) => {
+    if (chosen.length === termCount) {
+      const active: ActiveTerm[] = chosen.map((t) => ({
+        word: t.word,
+        op: t.op,
+        vector: state.vectors[t.word] ?? null,
+      }));
+      const result = computeResult(active);
+      if (result === null) return;
+
+      const ranked = rankCandidates(result, state.config.candidatePool, state.vectors);
+      const index = ranked.findIndex((r) => r.word === target);
+      if (index === -1) return;
+
+      const rank = ranked.length < 2 ? 0 : 1 - index / (ranked.length - 1);
+      const similarity = ranked[index]?.similarity ?? 0;
+
+      if (rank > bestRank || (rank === bestRank && similarity > bestSimilarity)) {
+        bestTerms = [...chosen];
+        bestRank = rank;
+        bestSimilarity = similarity;
+      }
+      return;
+    }
+    for (const word of words) {
+      for (const op of ['add', 'subtract'] as const) walk([...chosen, { word, op }]);
+    }
+  };
+  walk([]);
+
+  return bestTerms;
+}
+
+/** Each round's estimate set to the cosine similarity the model really produces. */
+function solveEstimates(state: VectorArithmeticState): VectorArithmeticState {
+  let next = state;
+  state.rounds.forEach((round, roundIndex) => {
+    next = applyAction(next, { type: 'ESTIMATE', roundIndex, value: round.actualSimilarity });
+  });
+  return next;
+}
+
 export function evaluate(state: VectorArithmeticState): ScoreResult {
   switch (state.mode) {
     case 'fixed-analogy': {

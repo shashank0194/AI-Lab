@@ -61,7 +61,30 @@
         "Think about what man → king adds on top of 'man': a notion of royalty. Apply that same shift starting from 'woman' instead.",
         "The direction from 'man' to 'king' encodes something like '+royalty'. Adding that direction to 'woman' should land you near the female equivalent of a king — and it does, by a wide margin over every other candidate.",
         "Pick 'queen' — computed live, it comes out clearly closest to king − man + woman, well ahead of the next candidate (throne)."
-      ]
+      ],
+      "solution": {
+        "problem": "The three terms are fixed, so the only thing you supply is the prediction: which word in the pool ends up nearest the vector you get from king − man + woman. The arithmetic is done on live 384-dimensional embeddings and every candidate is ranked by real cosine similarity, so 'queen' is not a stored answer — it is a result, and it can be checked.",
+        "steps": [
+          {
+            "title": "Read the subtraction as extracting a direction",
+            "body": "king − man is not 'a king with the man taken out'. It is the difference between two points, which is a direction: whatever coordinates you have to move along to turn the generic word into the royal one. Adding that direction to 'woman' moves woman the same distance in the same direction."
+          },
+          {
+            "title": "Predict where that lands before you look",
+            "body": "If the space is doing its job, woman + (king − man) should land on the word that stands to woman as king stands to man. Every candidate in the pool is a plausible distractor for some other reading of the sum — 'prince' if you thought it was about royalty in general, 'throne' if you thought it was about the objects around a king, 'castle' if you thought it was about place — which is what makes the prediction worth making."
+          },
+          {
+            "title": "Check it against the real numbers",
+            "body": "Computed live on this model, the ranking comes out: queen 0.58, throne 0.48, prince 0.39, castle 0.34, engine 0.28, river 0.27, soldier 0.27, farmer 0.21. Queen wins by a tenth of a point over the next candidate — a clear margin, not a photo finish. Note also that a cosine of 0.58 is not 'the same word': the analogy lands in queen's neighbourhood, not exactly on queen, and that gap is honest."
+          },
+          {
+            "title": "Know what the guess is worth",
+            "body": "Scoring is by rank, not by distance: first place is worth 3 points and three stars, second 2 points and two stars, third 1 point and a one-star pass, and anything below third scores nothing at all. Guessing 'throne' still passes; guessing 'castle' does not."
+          }
+        ],
+        "answer": "Guess 'queen'. Autofill guesses whatever the live arithmetic actually ranks first on your device, which for this model is queen at about 0.58 — rank 1, three stars.",
+        "takeaway": "Nothing in the model maps king to queen. The relationship is a direction in a space that was learned from raw text, which is why the same subtraction works for capital cities, verb tenses and plurals — the next level makes you find one of those directions yourself."
+      }
     },
     {
       "id": "1-2-l2",
@@ -104,7 +127,30 @@
         "You need a country → capital direction to add to 'france'. Reusing 'france' itself as one of your three terms is a trap: the result stays dominated by france's own vector and never quite reaches paris.",
         "Pick a country/capital pair that is NOT France or Paris, subtract the country, and add france — that transplants the 'capital of' direction onto France without France's own vector fighting the result.",
         "Add 'tokyo', subtract 'japan', add 'france' — computed live, that combination lands closest to 'paris' by a clear margin over every other candidate, including france itself."
-      ]
+      ],
+      "solution": {
+        "problem": "This time you choose all three terms, and the score is where 'paris' ends up in a ten-word ranking — 1.0 for first place, 0.89 for second, 0.78 for third, 0.67 for fourth, and below the 0.6 pass mark from fifth down. You have six attempts and the best one counts, so this is a search, not a single shot.",
+        "steps": [
+          {
+            "title": "Say what direction you actually need",
+            "body": "You want the point in space that is to France what a capital is to its country. That means you need the 'capital of' direction, and the only way to get a direction is to subtract one word from another: some capital minus its own country."
+          },
+          {
+            "title": "Borrow the direction from a pair that isn't the answer",
+            "body": "Take tokyo − japan. That difference is roughly 'the capital-city-ness of a country', with Japan's own identity cancelled out. Add france to it and you have applied that shift to France. Computed live: paris comes first at 0.84, france second at 0.76. Berlin − germany + france works the same way and also lands paris first, at 0.77."
+          },
+          {
+            "title": "See why leaning on france alone fails",
+            "body": "The obvious move is to build something out of france itself, but france's own vector then dominates the result. Try london + france + france and france tops the ranking at 0.94 with paris second at 0.79 — a score of 0.89 and two stars, not the three that were available. The result has to travel away from france, not pile onto it."
+          },
+          {
+            "title": "Watch out for the pair you borrowed from",
+            "body": "The borrowed pair does not always cancel cleanly. rome − italy + france puts rome first at 0.77 and paris only second at 0.70 — Italy's capital left a stronger residue than Japan's did. This is worth knowing as a fact about the geometry rather than a rule: the analogy is approximate, and which pair you borrow from changes how approximate."
+          }
+        ],
+        "answer": "Set the three terms to tokyo (add), japan (subtract), france (add). Autofill searches every combination of the level's own words in every add/subtract arrangement and takes the one that lands nearest paris while ranking it first, which on this model is exactly that: paris at 0.84, ahead of france at 0.76 — three stars.",
+        "takeaway": "A relationship you can add and subtract is a far stronger claim than a lookup table. The same trick recovers verb tense, plurals and comparatives, and the residue left behind by the pair you borrow from is the honest reason these analogies are demonstrations rather than an exact algebra."
+      }
     },
     {
       "id": "1-2-l3",
@@ -140,7 +186,30 @@
         "walking − walk + swim is a clean word-swap analogy (same grammatical shift applied to a different verb) — those tend to land very close to their target, not just 'somewhat similar'.",
         "This kind of analogy usually scores a high cosine similarity, well above 0.7 — the swapped verb keeps almost all of the surrounding context intact.",
         "Estimate around 0.90 — computed live, cos(result, 'swimming') comes out close to 0.90, near the top of the scale."
-      ]
+      ],
+      "solution": {
+        "problem": "walking − walk + swim is computed for you; what you supply is a number. Three rounds each ask for the cosine similarity between that result vector and one real candidate, and the score is your mean absolute error — under 0.2 to pass, under 0.12 for two stars, under 0.06 for three. A round left unanswered is charged the maximum possible cosine error of 2.0, so skipping one is not survivable.",
+        "steps": [
+          {
+            "title": "Recognise which kind of analogy this is",
+            "body": "This is a clean word swap: the same grammatical shift (base verb → present participle) applied to a different verb. Unlike king → queen, nothing about the meaning changes except the one word, so the result should land very close to its target rather than merely in its neighbourhood."
+          },
+          {
+            "title": "Calibrate what 'very close' means on this scale",
+            "body": "Cosine runs from −1 to 1, and for this kind of substitution the answer sits near the top of that range. Measured live: cos(result, 'swimming') is about 0.90. That is far higher than the 0.58 that king − man + woman managed against 'queen' one level ago, and the difference is exactly the difference between swapping a word and reasoning about a relationship."
+          },
+          {
+            "title": "Estimate each round separately — they are not the same number",
+            "body": "The three rounds walk the first three candidates in the pool, and they are genuinely different: swimming ≈ 0.90, swam ≈ 0.74, diving ≈ 0.56. A past tense of the right verb is close but clearly not the target; a different water sport is barely more than half. Putting 0.90 in all three boxes gives errors of 0.00, 0.16 and 0.34 — a mean of 0.17, which scrapes a one-star pass and misses the point."
+          },
+          {
+            "title": "Aim for the band, not the decimal",
+            "body": "Three stars needs a mean error under 0.06, which is roughly 'each estimate within 0.05 of the truth'. Estimating 0.90 / 0.75 / 0.55 is well inside that. Being systematically pessimistic is what costs stars here: guessing 0.7 / 0.6 / 0.5 averages 0.19 of error and barely passes."
+          }
+        ],
+        "answer": "Estimate about 0.90 for swimming, 0.74 for swam and 0.56 for diving. Autofill sets each round's slider to the cosine similarity the model really produces for that word, which is a mean error of zero and three stars.",
+        "takeaway": "Cosine similarity is a scale you can develop an intuition for, and that intuition is what makes retrieval systems tunable later: 0.9 means near-substitutable, 0.7 means related, and 0.5 means loosely the same topic. World 7's retrieval chapter is built on choosing a cut-off on exactly this scale."
+      }
     }
   ]
 }

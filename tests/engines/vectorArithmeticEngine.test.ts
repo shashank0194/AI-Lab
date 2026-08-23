@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type VectorArithmeticConfig,
 } from '@/engines/vectorArithmeticEngine';
 import type { Embedder } from '@/engines/deps';
@@ -350,6 +351,112 @@ describe('vectorArithmeticEngine — level config coverage', () => {
       const result = evaluate(state);
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
+    }
+  });
+});
+
+/**
+ * The worked solution's autofill.
+ *
+ * Level 2 gets its own planted space rather than the shared `SPACE` above,
+ * because what it has to demonstrate is a *relationship* — capital minus its
+ * own country, transplanted onto another country — and the shared fixture only
+ * plants the royalty analogy. Here every country is a distinct axis and every
+ * capital is its country plus one shared "capital of" dimension, so
+ * `tokyo − japan + france` lands exactly on paris, the same shape the real
+ * embeddings produce.
+ */
+const CAPITALS: Record<string, number[]> = {
+  france: [1, 0, 0, 0, 0],
+  japan: [0, 1, 0, 0, 0],
+  germany: [0, 0, 1, 0, 0],
+  italy: [0, 0, 0, 1, 0],
+  paris: [1, 0, 0, 0, 1],
+  tokyo: [0, 1, 0, 0, 1],
+  berlin: [0, 0, 1, 0, 1],
+  rome: [0, 0, 0, 1, 1],
+  london: [0.2, 0.2, 0, 0, 1],
+  madrid: [0, 0, 0.2, 0.2, 1],
+};
+
+const capitalEmbedder: Embedder = {
+  async embed(texts: string[]) {
+    return texts.map((t) => CAPITALS[t] ?? [0, 0, 0, 0, 0.5]);
+  },
+};
+
+describe('vectorArithmeticEngine — solve', () => {
+  it('guesses whatever the live arithmetic ranks first', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+    const result = evaluate(solved);
+
+    expect(solved.guess).toBe(solved.ranked[0]!.word);
+    expect(result.breakdown.guessRank).toBe(1);
+    expect(result.passed).toBe(true);
+    expect(result.stars).toBe(3);
+  });
+
+  it('still lands the guess after the player has already revealed', async () => {
+    // A guess is ignored once revealed, so the fill has to rewind the board
+    // rather than silently doing nothing.
+    const config = configFor(0);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const revealed = applyAction(initState(config, rulesFor(0), prepared), { type: 'REVEAL' });
+    const result = evaluate(solve(revealed));
+
+    expect(result.passed).toBe(true);
+    expect(result.stars).toBe(3);
+  });
+
+  it('builds a real relationship for free-terms rather than naming the target', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { embedder: capitalEmbedder });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+    const result = evaluate(solved);
+
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+    expect(solved.ranked[0]!.word).toBe('paris');
+    // The one piece of judgement in the search: 'paris + x − x' would score a
+    // perfect 1 and demonstrate nothing.
+    expect(solved.terms.map((t) => t.word)).not.toContain('paris');
+    // A capital transplanted off its own country and onto france.
+    expect(solved.terms.some((t) => t.op === 'subtract')).toBe(true);
+    expect(solved.terms.map((t) => t.word)).toContain('france');
+  });
+
+  it('rewinds when the player has already burned every attempt', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { embedder: capitalEmbedder });
+    let state = initState(config, rulesFor(1), prepared);
+    // Six committed attempts on a hopeless combination — the cap is reached, so
+    // a naive fill would set the terms and then be unable to commit them.
+    state = applyAction(state, { type: 'SET_TERM', index: 0, word: 'japan', vector: CAPITALS['japan']!, op: 'add' });
+    state = applyAction(state, { type: 'SET_TERM', index: 1, word: 'japan', vector: CAPITALS['japan']!, op: 'add' });
+    state = applyAction(state, { type: 'SET_TERM', index: 2, word: 'japan', vector: CAPITALS['japan']!, op: 'add' });
+    for (let i = 0; i < config.maxAttempts!; i++) {
+      state = applyAction(state, { type: 'COMMIT_ATTEMPT' });
+    }
+    expect(state.attempts).toBe(config.maxAttempts);
+
+    const result = evaluate(solve(state));
+    expect(result.value).toBe(1);
+    expect(result.passed).toBe(true);
+  });
+
+  it('answers every estimate round with the real cosine similarity', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { embedder: fakeEmbedder });
+    const solved = solve(initState(config, rulesFor(2), prepared));
+    const result = evaluate(solved);
+
+    expect(result.value).toBeCloseTo(0, 10);
+    expect(result.passed).toBe(true);
+    expect(result.stars).toBe(3);
+    for (const round of solved.rounds) {
+      expect(round.estimate).toBeCloseTo(round.actualSimilarity, 10);
     }
   });
 });

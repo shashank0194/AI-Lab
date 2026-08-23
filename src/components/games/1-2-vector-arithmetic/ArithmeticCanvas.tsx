@@ -24,6 +24,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type ActiveTerm,
   type RankedCandidate,
   type VectorArithmeticAction,
@@ -40,6 +41,7 @@ import {
 } from '@/models/embeddingVocabulary';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Readout, Slider, Toggle, Tag, cx } from '@/components/ui';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -81,7 +83,13 @@ export function ArithmeticCanvas({ game, level, onScore, onSubmit }: GameCompone
       load={load}
     >
       {state && (
-        <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
       )}
     </ModelGate>
   );
@@ -90,11 +98,14 @@ export function ArithmeticCanvas({ game, level, onScore, onSubmit }: GameCompone
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: VectorArithmeticState;
   dispatch: (action: VectorArithmeticAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: VectorArithmeticState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -103,6 +114,18 @@ function Board({
 
   const editable = state.mode === 'free-terms';
   const [drafts, setDrafts] = useState<string[]>(() => state.terms.map((t) => t.word ?? ''));
+
+  // The solution's autofill. The term inputs are a local draft mirror of the
+  // engine's terms, so a fill that only replaced engine state would leave the
+  // three boxes showing whatever the player last typed.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setDrafts(solved.terms.map((t) => t.word ?? ''));
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
   const [pending, setPending] = useState<number | null>(null);
   const [embedError, setEmbedError] = useState<string | null>(null);
 
