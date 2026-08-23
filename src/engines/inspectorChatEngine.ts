@@ -42,6 +42,15 @@ export interface InspectorChatConfig {
   cloudEscalation?: boolean;
   cloudRequiresOnline?: boolean;
   comparisonAxes?: ComparisonAxis[];
+  /**
+   * Runs the worked solution performs — one per challenge on the challenge
+   * level, enough to fill the round count on the others. Each carries its own
+   * sampling settings, because this chapter's three challenges want opposite
+   * ones: a near-certain first token needs a low temperature and a high mean
+   * entropy needs a high one. Content, so they live in the level JSON; running
+   * them needs the capstone model, which only the canvas can reach.
+   */
+  solutionRuns?: { prompt: string; temperature?: number; topP?: number }[];
 }
 
 export interface ChallengeState extends Challenge {
@@ -293,6 +302,58 @@ export function applyAction(
 export function cloudAvailable(state: InspectorChatState): boolean {
   if (!state.config.cloudEscalation) return false;
   return !state.config.cloudRequiresOnline || state.online;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this chapter's own generation traces produce.
+ *
+ * This is the one chapter where the fill cannot supply everything, and the
+ * reason is structural rather than an omission: two of these levels have
+ * nothing to answer until the model has actually generated something on this
+ * device, and generating is the canvas's job. So the canvas runs the level's
+ * own `solutionPrompts` first, and what is left — the real fork index, and
+ * which model each axis really favours — is read out of the resulting traces
+ * here.
+ *
+ * The challenge level has no answers at all in this sense: a challenge is
+ * satisfied by a run's real measurements, so the fill's entire contribution
+ * there is the prompts and the temperature, and whether they satisfy the
+ * checks is up to the model.
+ */
+export function solve(state: InspectorChatState): InspectorChatState {
+  switch (state.mode) {
+    case 'challenge-run':
+      return state;
+
+    case 'find-fork': {
+      let next = state;
+      state.forkRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'ANSWER_FORK',
+          roundIndex,
+          index: round.trueForkIndex,
+        });
+      });
+      return next;
+    }
+
+    case 'compare-scale': {
+      let next = state;
+      for (const comparison of state.comparisons) {
+        if (comparison.trueAnswer === null) continue;
+        next = applyAction(next, {
+          type: 'PREDICT_COMPARISON',
+          axis: comparison.axis,
+          value: comparison.trueAnswer,
+        });
+      }
+      return next;
+    }
+  }
 }
 
 export function evaluate(state: InspectorChatState): ScoreResult {

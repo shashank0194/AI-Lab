@@ -27,6 +27,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   cloudAvailable,
   type ChallengeState,
   type ComparisonRound,
@@ -40,6 +41,7 @@ import { ollamaCloudClient } from '@/models/ollamaCloudClient';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, formatNumber, Meter, Panel, Slider, Tag, Toggle, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -84,6 +86,7 @@ export function InspectorChatCanvas({ game, level, onScore, onSubmit }: GameComp
         <Board
           state={state}
           dispatch={dispatch}
+          setState={setState}
           fallbackMessage={game.modelRequirement.fallbackMessage}
           onScore={onScore}
           onSubmit={onSubmit}
@@ -96,12 +99,15 @@ export function InspectorChatCanvas({ game, level, onScore, onSubmit }: GameComp
 function Board({
   state,
   dispatch,
+  setState,
   fallbackMessage,
   onScore,
   onSubmit,
 }: {
   state: InspectorChatState;
   dispatch: (action: InspectorChatAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: InspectorChatState) => void;
   fallbackMessage: string | null;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
@@ -123,6 +129,72 @@ function Board({
 
   const resetRun = useCallback(() => dispatch({ type: 'RESET' }), [dispatch]);
   useRetrySignal(resetRun);
+
+  const [filling, setFilling] = useState(false);
+
+  /**
+   * The solution's autofill.
+   *
+   * The most expensive fill in the course: every level here is scored on real
+   * generations, so this actually runs the capstone model — once per solution
+   * run, and again against the cloud endpoint on the comparison level when one
+   * is configured and reachable. Nothing about the outcome is asserted here;
+   * whether a challenge is satisfied is decided by what the model does.
+   */
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        setFilling(true);
+        try {
+          let next = state;
+          for (const run of state.config.solutionRuns ?? []) {
+            const wanted = state.config.rounds;
+            if (state.mode === 'find-fork' && wanted && next.forkRounds.length >= wanted) break;
+
+            if (run.temperature !== undefined) {
+              next = applyAction(next, { type: 'SET_TEMPERATURE', value: run.temperature });
+            }
+            if (run.topP !== undefined) {
+              next = applyAction(next, { type: 'SET_TOP_P', value: run.topP });
+            }
+
+            const options = {
+              maxTokens: state.config.maxTokens,
+              temperature: next.temperature,
+              topP: next.topP,
+            };
+            const trace = await webllmCapstone.generateWithTrace(run.prompt, options);
+            next = applyAction(next, {
+              type: 'RECORD_RUN',
+              prompt: run.prompt,
+              trace,
+              source: 'local',
+            });
+
+            if (state.mode === 'compare-scale' && cloudAvailable(next)) {
+              // The engine refuses a cloud run unless escalation is actually
+              // on, so the fill has to turn it on — the same gate a player
+              // passes by flipping the toggle themselves.
+              next = applyAction(next, { type: 'TOGGLE_CLOUD', value: true });
+              const cloudTrace = await ollamaCloudClient.generateWithTrace(run.prompt, options);
+              next = applyAction(next, {
+                type: 'RECORD_RUN',
+                prompt: run.prompt,
+                trace: cloudTrace,
+                source: 'cloud',
+              });
+            }
+          }
+
+          next = solve(next);
+          setState(next);
+          onSubmit(evaluate(next));
+        } finally {
+          setFilling(false);
+        }
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));
@@ -146,6 +218,9 @@ function Board({
           <RotateCcw size={13} strokeWidth={2} />
           Reset
         </Button>
+        {/* The solution's fill runs the real model, which takes as long as a
+            manual run does — without this the board looks frozen. */}
+        {filling && <Tag tone="accent">running the solution&rsquo;s prompts…</Tag>}
         <Actions state={state} onSubmit={submit} />
       </div>
     </div>

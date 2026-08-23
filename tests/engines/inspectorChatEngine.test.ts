@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   measureCheck,
   measureAxis,
   findForkIndex,
@@ -309,6 +310,84 @@ describe('inspectorChatEngine — level config coverage', () => {
       const result = evaluate(state);
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
+    }
+  });
+});
+
+describe('inspectorChatEngine — solve', () => {
+  it('answers each fork round with the index the two traces really diverge at', () => {
+    const config = configFor(1);
+    let state = initState(config, rulesFor(1));
+    for (let i = 0; i < (config.rounds ?? 0); i++) {
+      state = applyAction(state, {
+        type: 'RECORD_RUN',
+        prompt: `prompt ${i}`,
+        trace: i % 2 === 0 ? confidentTrace : uncertainTrace,
+        source: 'local',
+      });
+    }
+
+    const solved = solve(state);
+    for (const round of solved.forkRounds) expect(round.answer).toBe(round.trueForkIndex);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('predicts each comparison axis with what the two traces really show', () => {
+    const config = configFor(2);
+    let state = initState(config, rulesFor(2));
+    // A cloud run is refused unless escalation is actually on, which is the
+    // same gate the canvas's fill has to pass.
+    state = applyAction(state, { type: 'SET_ONLINE', value: true });
+    state = applyAction(state, { type: 'TOGGLE_CLOUD', value: true });
+    state = applyAction(state, {
+      type: 'RECORD_RUN',
+      prompt: 'p',
+      trace: confidentTrace,
+      source: 'local',
+    });
+    state = applyAction(state, {
+      type: 'RECORD_RUN',
+      prompt: 'p',
+      trace: uncertainTrace,
+      source: 'cloud',
+    });
+
+    const solved = solve(state);
+    for (const comparison of solved.comparisons) {
+      expect(comparison.prediction).toBe(comparison.trueAnswer);
+    }
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('leaves the comparison level alone until both models have run', () => {
+    const config = configFor(2);
+    let state = initState(config, rulesFor(2));
+    state = applyAction(state, {
+      type: 'RECORD_RUN',
+      prompt: 'p',
+      trace: confidentTrace,
+      source: 'local',
+    });
+    // No cloud trace yet, so no axis has a true answer to fill in.
+    expect(solve(state).comparisons.every((c) => c.prediction === null)).toBe(true);
+  });
+
+  it('has nothing to fill in on the challenge level, which real runs decide', () => {
+    const config = configFor(0);
+    const state = initState(config, rulesFor(0));
+    expect(solve(state)).toBe(state);
+    // What the fill contributes there is the runs themselves, from the JSON.
+    expect(config.solutionRuns?.length).toBe(config.challenges?.length);
+  });
+
+  it('names a solution run for every round each level needs', () => {
+    for (let i = 0; i < 3; i++) {
+      const config = configFor(i);
+      const runs = config.solutionRuns ?? [];
+      expect(runs.length).toBeGreaterThan(0);
+      if (config.rounds) expect(runs.length).toBeGreaterThanOrEqual(1);
+      for (const run of runs) expect(run.prompt.length).toBeGreaterThan(0);
     }
   });
 });
