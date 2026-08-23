@@ -17,6 +17,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   attentionRow,
   buildRound,
   editDistance,
@@ -32,6 +33,7 @@ import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Slider, Tag, cx } from '@/components/ui';
 import { normalizeDistribution } from '@/engines/shared';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -63,7 +65,14 @@ export function SelfAttentionCanvas({ game, level, onScore, onSubmit }: GameComp
       load={load}
     >
       {state && (
-        <Board state={state} results={results} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />
+        <Board
+          state={state}
+          results={results}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
       )}
     </ModelGate>
   );
@@ -73,12 +82,15 @@ function Board({
   state,
   results,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: AttentionGuessState;
   results: AttentionResult[];
   dispatch: (action: AttentionGuessAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: AttentionGuessState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -95,6 +107,32 @@ function Board({
   }, [dispatch]);
 
   useRetrySignal(resetRun);
+
+  /**
+   * The solution's autofill.
+   *
+   * The reference-breaking level needs a real forward pass over the edited
+   * sentence before the engine can score it — the engine has no model — so the
+   * level's own verified edit is run here and handed in.
+   */
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        let solved = state;
+        if (state.mode === 'flip-reference') {
+          const sentence = state.config.solutionSentence;
+          if (!sentence) return;
+          const attention = await attentionModel.attention(sentence);
+          solved = solve(state, { edit: { sentence, attention } });
+        } else {
+          solved = solve(state);
+        }
+        setState(solved);
+        setRevealed(true);
+        onSubmit(evaluate(solved));
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

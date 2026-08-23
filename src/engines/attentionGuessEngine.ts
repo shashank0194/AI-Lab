@@ -28,6 +28,14 @@ export interface AttentionGuessConfig {
   maxEditDistance?: number;
   attempts?: number;
   minFlipMargin?: number;
+  /**
+   * The edited sentence the worked solution submits for `flip-reference`, and
+   * the layer it was verified at. Content, so it lives in the level JSON — the
+   * engine has no model to run the edit through, so the canvas does it and
+   * hands the resulting attention in.
+   */
+  solutionSentence?: string;
+  solutionLayer?: number;
 }
 
 export interface AttentionRound {
@@ -374,6 +382,76 @@ export function applyAction(
     case 'SUBMIT':
       return { ...state, status: 'complete', actionCount: state.actionCount + 1 };
   }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this level's own attention rows produce.
+ *
+ * The first two modes read straight out of the real forward pass already in
+ * state — which key the row peaks on, and the row itself. `flip-reference`
+ * cannot: scoring an edit means running the edited sentence through the model,
+ * which this module never sees, so the canvas runs the level's own
+ * `solutionSentence` and passes the resulting attention in.
+ */
+export function solve(
+  state: AttentionGuessState,
+  options?: { edit?: { sentence: string; attention: AttentionResult } }
+): AttentionGuessState {
+  switch (state.mode) {
+    case 'guess-argmax': {
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        if (round.trueRow.length === 0) return;
+        let best = 0;
+        for (let i = 1; i < round.trueRow.length; i++) {
+          if (round.trueRow[i]! > round.trueRow[best]!) best = i;
+        }
+        const keyIndex = round.keyIndices[best];
+        if (keyIndex !== undefined) {
+          next = applyAction(next, { type: 'GUESS', roundIndex, keyIndex });
+        }
+      });
+      return next;
+    }
+
+    case 'draw-distribution': {
+      const budget = state.config.budget ?? 100;
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        round.trueRow.forEach((weight, position) => {
+          const keyIndex = round.keyIndices[position];
+          if (keyIndex === undefined) return;
+          next = applyAction(next, {
+            type: 'ALLOCATE',
+            roundIndex,
+            keyIndex,
+            value: Math.round(weight * budget),
+          });
+        });
+      });
+      return next;
+    }
+
+    case 'flip-reference': {
+      const edit = options?.edit;
+      if (!edit) return state;
+      return applyAction(atSolutionLayer(state), {
+        type: 'SUBMIT_EDIT',
+        sentence: edit.sentence,
+        attention: edit.attention,
+      });
+    }
+  }
+}
+
+/** Moves to the layer the level's own edit was verified at, if it names one. */
+function atSolutionLayer(state: AttentionGuessState): AttentionGuessState {
+  const layer = state.config.solutionLayer;
+  return layer === undefined ? state : applyAction(state, { type: 'SET_LAYER', value: layer });
 }
 
 export function evaluate(state: AttentionGuessState): ScoreResult {

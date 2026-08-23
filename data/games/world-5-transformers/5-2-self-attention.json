@@ -52,7 +52,30 @@
         "Look for what \"it\" would plausibly refer to given the rest of the sentence — the model's attention often, but not always, tracks the same cue a careful reader would.",
         "Layer 4's row is a mean over 12 heads, so it is smoother than any single head. It tends to favour whichever candidate is most central to the clause \"it\" sits in, not just the nearest noun.",
         "Verified against the real model at layer 4, mean-aggregated: for \"the cat sat on the mat because it was warm\", \"it\" attends most to cat (16.6% of the row); for \"the trophy did not fit in the suitcase because it was too large\", most to trophy (23.2%); for \"sarah handed the book to mark after she finished it\", most to book (26.6%)."
-      ]
+      ],
+      "solution": {
+        "problem": "Three sentences with an ambiguous pronoun, a real transformer's attention read out of its actual forward pass, and one question per sentence: which word does the pronoun's attention row put the most weight on? The weights are averaged across the heads of layer 4 — not simulated, not an answer key.",
+        "steps": [
+          {
+            "title": "Know what the row is",
+            "body": "Attention gives every token a row of weights, one per other token, summing to one. That row is how much of each other token's representation gets mixed into this one. Asking where 'it' attends is asking which token contributes most to what 'it' becomes at this layer."
+          },
+          {
+            "title": "Expect a resolution, but do not assume it",
+            "body": "For 'the cat sat on the mat because it was warm', 'it' attends most to cat at 16.6% of the row — the coreference a human would also pick. For 'the trophy did not fit in the suitcase because it was too large', most to trophy at 23.2%. That second one is a Winograd sentence, the classic test of whether meaning is being tracked at all."
+          },
+          {
+            "title": "Read the third one carefully",
+            "body": "'Sarah handed the book to mark after she finished it' — the target token is 'it' and its winner is book, at 26.6%. Different sentences put very different amounts of mass on their winner: 16.6%, 23.2%, 26.6%. Even the strongest is barely a quarter of the row, with the rest spread across function words."
+          },
+          {
+            "title": "Do not over-read the win",
+            "body": "A 16.6% winner is not the model 'deciding' anything — it is the largest share in a fairly flat distribution. Attention rows are much flatter than the arrows in most diagrams suggest, and the next level makes you draw one to prove it."
+          }
+        ],
+        "answer": "cat, trophy, book — the tokens the real attention rows peak on at layer 4. Autofill guesses whichever key each round's real row actually peaks on, for 3/3 and three stars.",
+        "takeaway": "Attention is a soft, weighted average, not a pointer. It resolves references well enough to be legible here, and it does so with a distribution rather than a decision — which is why the same mechanism handles ambiguity gracefully instead of committing early."
+      }
     },
     {
       "id": "5-2-l2",
@@ -89,7 +112,30 @@
         "Real attention rows are rarely a clean spike on one \"obviously correct\" token — mass usually spreads across several tokens, including function words like \"because\" or \"was\". A distribution that hedges across the top few candidates beats one that bets everything on your best guess.",
         "Scoring is total variation distance on the shape, not the total — 10/20/30 and 100/200/300 score identically. Get the relative sizes right before worrying about the exact numbers.",
         "Verified at layer 4, mean-aggregated: for \"the doctor called the nurse because she was late\", the real row (of 100) is roughly because 27, was 23, the 12, called 11, she 8, the 7, doctor 6, nurse 6 — \"doctor\" and \"nurse\" themselves are actually among the smallest shares. For \"we poured water into the glass until it was full\", it's we 23, the 11, glass 11, full 11, until 10, was 10, poured 9, water 7, into 7."
-      ]
+      ],
+      "solution": {
+        "problem": "The same real attention, but now you draw the whole row rather than naming its peak. One hundred points spread across the tokens, scored by total variation distance against the model's real distribution, with three stars inside 0.12.",
+        "steps": [
+          {
+            "title": "Expect the answer to be flat and function-word heavy",
+            "body": "The instinct is to pile the mass onto the semantically important nouns. Measured on 'the doctor called the nurse because she was late' at layer 4, the real row of 100 is roughly: because 27, was 23, the 12, called 11, she 8, the 7, doctor 6, nurse 6. 'Doctor' and 'nurse' — the two words the sentence is about — get the *smallest* shares."
+          },
+          {
+            "title": "Understand why the function words win",
+            "body": "Attention at a middle layer is doing a lot of grammatical bookkeeping: 'because' marks the clause boundary this pronoun's antecedent lives across, 'was' anchors the predicate. Those tokens are structurally informative for almost any sentence, so they attract weight even when they carry little meaning."
+          },
+          {
+            "title": "Check the second sentence for the same shape",
+            "body": "'We poured water into the glass until it was full' gives we 23, the 11, glass 11, full 11, until 10, was 10, poured 9, water 7, into 7 — even flatter, with the largest share under a quarter and the tail bunched between 7 and 11. A drawing that puts 50 points on one token is already badly wrong before any detail is considered."
+          },
+          {
+            "title": "Aim for the shape, not the exact numbers",
+            "body": "Total variation is half the summed gap, so it forgives small errors spread across many tokens and punishes one big misplacement. Getting the flatness roughly right — nothing above about 30, nothing at zero — earns most of the score on its own."
+          }
+        ],
+        "answer": "Spread the budget close to the real rows: because 27, was 23, the 12, called 11, she 8, the 7, doctor 6, nurse 6 for the first sentence, and a nearly flat spread topped by we 23 for the second. Autofill allocates each row in the model's own live proportions, for an error near zero and three stars.",
+        "takeaway": "Attention diagrams in papers show a few bold arrows; real attention rows are mostly a haze over function words with a modest peak. Knowing what the real distribution looks like is what stops attention maps being over-interpreted as explanations."
+      }
     },
     {
       "id": "5-2-l3",
@@ -105,6 +151,8 @@
         "headAggregation": "mean",
         "excludeSpecialTokens": true,
         "maxEditDistance": 20,
+        "solutionSentence": "the suitcase did not fit in the trophy because it was too large",
+        "solutionLayer": 3,
         "attempts": 6,
         "minFlipMargin": 0.05,
         "allowUserSentence": true
@@ -124,7 +172,30 @@
         "Swapping the adjective (\"large\" for \"small\") is the intuitive edit, but try it at every layer first — this real model does not move the same way at every layer, and some layers barely react to the adjective at all.",
         "Verified across three dozen adjective swaps at layers 3-5: this specific model's mid-to-late attention from \"it\" locks onto \"trophy\" almost regardless of which adjective follows — it is tracking something closer to which noun is more salient, not the size relationship the sentence describes. To flip the winner for real, change which noun sits in the position the model favours, not just the adjective describing it.",
         "Verified working edit at layer 3: \"the suitcase did not fit in the trophy because it was too large\" (swap the two nouns, keep everything else) moves the winner to suitcase at 19.3% of the row — trophy itself has fallen to 8.6%, well clear of the required 5-point margin. It's a big edit, so it won't max the edit-distance bonus, but it reliably clears the pass bar."
-      ]
+      ],
+      "solution": {
+        "problem": "One Winograd sentence, whose pronoun currently attends most to 'trophy'. You edit the sentence — within an edit distance of 20 — to make attention land on a different word instead, by a margin of at least 5 percentage points. Six attempts, and the best one counts.",
+        "steps": [
+          {
+            "title": "Know what counts as a flip",
+            "body": "The comparison is by the winning token's *text*, not its index, so an edit that inserts or deletes a word earlier in the sentence does not count as a flip just because positions shifted. The new winner has to be a genuinely different word, and it has to win by at least 5 points."
+          },
+          {
+            "title": "Attack the semantics, not the wording",
+            "body": "'The trophy did not fit in the suitcase because it was too large' resolves to trophy because of what 'too large' means for a container and its contents. Swapping the two nouns inverts exactly that relationship while leaving every other word in place: 'the suitcase did not fit in the trophy because it was too large'."
+          },
+          {
+            "title": "Check that it really moved",
+            "body": "Verified at layer 3: that edit moves the winner to suitcase at 19.3% of the row, with trophy fallen to 8.6% — a margin far past the 5-point requirement. The model is not pattern-matching on which noun came first; it responds to the swapped relationship."
+          },
+          {
+            "title": "Accept the edit-distance cost",
+            "body": "Scoring is 0.6 for flipping plus up to 0.4 for doing it with a small edit. Swapping two nouns is a large edit by character count, so this answer clears the pass bar and three stars without maxing the distance bonus. A shorter edit that still flips would score higher — that is the part of this level left genuinely open."
+          }
+        ],
+        "answer": "Swap the two nouns: 'the suitcase did not fit in the trophy because it was too large', read at layer 3 — the winner moves to suitcase at 19.3% against trophy's 8.6%, three stars. Autofill submits exactly that sentence, run through the real model live.",
+        "takeaway": "Attention is computed from the actual content, so it can be moved by changing the content — which is both why these maps are informative and why they are fragile. A model whose attention flips when the meaning flips is tracking something real; it is also a model an adversary can steer, which is where World 8 ends up."
+      }
     }
   ]
 }

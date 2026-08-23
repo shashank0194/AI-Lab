@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   attentionRow,
   buildRound,
   editDistance,
@@ -432,5 +433,54 @@ describe('attentionGuessEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('attentionGuessEngine — solve', () => {
+  it('guesses the key each real attention row peaks on', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('draws each row in the model’s own proportions', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+
+    // Whole points, so a hair above zero rather than exactly zero.
+    expect(evaluate(solved).value).toBeLessThan(0.02);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('does nothing for the flip level without a real forward pass to submit', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    const state = initState(config, rulesFor(2), prepared);
+    expect(solve(state).attempts).toEqual([]);
+  });
+
+  it('submits the level’s own verified edit at the layer it was verified on', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { attention: fakeAttention });
+    const state = initState(config, rulesFor(2), prepared);
+    const sentence = config.solutionSentence!;
+    const attention = await fakeAttention.attention(sentence);
+
+    const solved = solve(state, { edit: { sentence, attention } });
+    expect(solved.layer).toBe(config.solutionLayer);
+    expect(solved.attempts).toHaveLength(1);
+    expect(solved.attempts[0]!.sentence).toBe(sentence);
+  });
+
+  it('names a solution edit inside the level’s own edit-distance limit', () => {
+    const config = configFor(2);
+    expect(config.solutionSentence).toBeTruthy();
+    expect(editDistance(config.sentences[0]!, config.solutionSentence!)).toBeLessThanOrEqual(
+      config.maxEditDistance!
+    );
   });
 });
