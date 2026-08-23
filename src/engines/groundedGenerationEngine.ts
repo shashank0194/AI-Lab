@@ -314,6 +314,83 @@ export function applyAction(
   }
 }
 
+export interface CurateCandidate {
+  order: 'correct-first' | 'distractor-first';
+  truncateDistractor: boolean;
+}
+
+/**
+ * The four curated-context arrangements, ordered most-promising first.
+ *
+ * This is a search order, not an answer: the canvas runs a real decode for
+ * each in turn and keeps the first that genuinely reaches the fact, so a
+ * different model (or a different pair of passages) simply lands on a
+ * different candidate. The ordering encodes the two things the level teaches —
+ * a trimmed distractor is less able to dominate than a full one, and the
+ * passage nearest the question has the strongest pull — so the arrangement
+ * those two rules jointly predict is tried first.
+ */
+export function curateCandidates(): CurateCandidate[] {
+  return [
+    { order: 'distractor-first', truncateDistractor: true },
+    { order: 'correct-first', truncateDistractor: true },
+    { order: 'distractor-first', truncateDistractor: false },
+    { order: 'correct-first', truncateDistractor: false },
+  ];
+}
+
+/**
+ * The worked solution's autofill.
+ *
+ * `identify-grounded` is pure: the grounded side of each round was derived
+ * during `prepare()`, so picking it needs no model. The other two modes are
+ * scored on what the model actually produces, so the canvas has to run the
+ * real decodes and hand the resulting text in — this function never invents a
+ * completion, and with no decodes supplied it only goes as far as selecting
+ * the passages or the arrangement.
+ */
+export function solve(
+  state: GroundedGenerationState,
+  options?: {
+    /** pick-passage: the canvas's real decode for each round, by round index. */
+    decodedTexts?: (string | null)[];
+    /** curate-context: the arrangement that really worked, and its real decode. */
+    curated?: CurateCandidate & { decodedText: string };
+  }
+): GroundedGenerationState {
+  switch (state.mode) {
+    case 'identify-grounded': {
+      let next = state;
+      state.identifyRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'PICK_SIDE', roundIndex, side: round.groundedSide });
+      });
+      return next;
+    }
+
+    case 'pick-passage': {
+      let next = state;
+      state.pickRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'CHOOSE_PASSAGE', roundIndex, factId: round.targetFactId });
+        const decodedText = options?.decodedTexts?.[roundIndex];
+        if (decodedText != null) {
+          next = applyAction(next, { type: 'TEST_PASSAGE', roundIndex, decodedText });
+        }
+      });
+      return next;
+    }
+
+    case 'curate-context': {
+      const candidate = options?.curated ?? curateCandidates()[0]!;
+      let next = applyAction(state, { type: 'SET_ORDER', order: candidate.order });
+      next = applyAction(next, { type: 'SET_TRUNCATE', truncate: candidate.truncateDistractor });
+      if (options?.curated) {
+        next = applyAction(next, { type: 'TEST_CONTEXT', decodedText: options.curated.decodedText });
+      }
+      return next;
+    }
+  }
+}
+
 export function evaluate(state: GroundedGenerationState): ScoreResult {
   switch (state.mode) {
     case 'identify-grounded': {

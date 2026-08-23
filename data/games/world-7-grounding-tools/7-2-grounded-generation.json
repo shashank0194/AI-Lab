@@ -45,8 +45,31 @@
       "hints": [
         "The grounded completion has the passage's own words to fall back on, so it tends to state a specific number confidently and stop. The ungrounded completion is guessing from whatever the model already knows, which for a 135M model is often wrong, vague, or trails off into an unrelated sentence.",
         "Don't just look for 'a number' — look for whether the number matches the kind of fact the question is actually asking about, and whether the sentence reads like it's continuing a passage you can imagine, rather than inventing one.",
-        "Checked directly against the real model: for the Great Barrier Reef question, the grounded side says '2,300 kilometers', the ungrounded side guesses '3,700 kilometers'. For the Burj Khalifa question, grounded reaches '828 meters tall'; ungrounded says 'is 15' and trails off. For Venus, grounded says '243 Earth days'; ungrounded guesses '24 hours'. For the Statue of Liberty, grounded says '93 meters tall from base to torch'; ungrounded guesses '33.3 meters'."
-      ]
+        "Measured in a real browser against this model: for the reef question the grounded side says 'The Great Barrier Reef stretches 2,300 kilometers.' and the ungrounded side says 'The Great Barrier Reef stretches for 1,500 kilometers.' For the Burj Khalifa, grounded is just '828 meters tall'; ungrounded is 'The Burj Khalifa is 10 meters tall.' For Venus, the grounded side recites the passage and runs out of room mid-sentence — 'Venus has a very short life on its axis. A single day on Venus takes' — while the ungrounded side loops: '24 hours and 24 hours and 30 minutes'. For the Statue of Liberty, grounded is '93 meters tall is the Statue of Liberty. From base to torch,'; ungrounded is 'The Statue of Liberty is 33 meters tall from base to the torch.'"
+      ],
+      "solution": {
+        "problem": "Four questions, and for each one two real completions from the same model: one produced with the fact's passage pasted in above the question, one produced with nothing but the question. Nothing here is edited or written by hand — both sides are greedy decodes, read one true next-token at a time. Your job is to tell which side could see the passage.",
+        "steps": [
+          {
+            "title": "Know what grounding actually changes",
+            "body": "The model is the same 135M network in both columns; only the prompt differs. With a passage in front of it, the answer is a copying problem — the number is right there in the context window, a few tokens back. Without it, the same question is a recall problem, and a 135M model has very little to recall. So the tell is not fluency, which both sides have in abundance, but whether the specific number reads like it was taken from somewhere or made up on the spot."
+          },
+          {
+            "title": "Work the reef round",
+            "body": "The passage says the Great Barrier Reef stretches 2,300 kilometers. Measured in a real browser, the grounded side answers 'The Great Barrier Reef stretches 2,300 kilometers.' — the passage's own figure, verbatim. The ungrounded side answers 'The Great Barrier Reef stretches for 1,500 kilometers.', which is the same sentence, equally fluent, equally unhedged, and wrong. Confidence tells you nothing here; only the number does."
+          },
+          {
+            "title": "Watch the failures get stranger without context",
+            "body": "Each ungrounded side fails differently. Burj Khalifa: grounded answers '828 meters tall' and stops; ungrounded says 'The Burj Khalifa is 10 meters tall.' — off by a factor of eighty, delivered as a complete sentence. Statue of Liberty: grounded starts '93 meters tall is the Statue of Liberty. From base to torch,'; ungrounded says '33 meters'. Venus is the strangest: the ungrounded side degenerates into a loop, '24 hours and 24 hours and 30 minutes', which is what a model does when no continuation is better supported than repeating itself."
+          },
+          {
+            "title": "Turn that into a rule you can apply on sight",
+            "body": "The grounded completion reads like it is reciting: it reproduces the passage's own figure, or its own phrasing, and then stops because it has run out of passage to copy. On the Venus round it does not even reach the number within the 16-token budget — it is still quoting the passage ('A single day on Venus takes') when the budget ends, and that recitation is itself the tell. Pick the side that looks like it is reading, not the side that looks like it is talking."
+          }
+        ],
+        "answer": "Reef: the side saying 2,300 kilometers, not 1,500. Burj Khalifa: the bare '828 meters tall', not the 10-meter sentence. Venus: the side reciting the passage, not the one looping '24 hours and 24 hours and 30 minutes'. Statue of Liberty: the side that starts at 93 meters, not 33. Which physical column each of those lands in is decided per fact when the round is built, so read the text rather than looking for a pattern in left/right. Autofill selects the genuinely grounded side of each round — 4 of 4, three stars.",
+        "takeaway": "A model with no relevant knowledge does not sound uncertain — it sounds exactly as fluent as a model that is reading the answer off the page. That is why hallucination is hard to catch by eye, and why the fix is putting the fact in the context rather than hoping the weights already hold it."
+      }
     },
     {
       "id": "7-2-l2",
@@ -57,7 +80,7 @@
       "engineConfig": {
         "mode": "pick-passage",
         "corpus": "retrieval-facts",
-        "maxTokens": 20,
+        "maxTokens": 32,
         "rounds": [
           { "targetFactId": "mariana", "distractorFactIds": ["reef", "amazon"] },
           { "targetFactId": "burj", "distractorFactIds": ["statue-liberty", "greatwall"] },
@@ -78,21 +101,44 @@
       "hints": [
         "Read all three candidate passages before picking — only one is actually about the same subject as the question. The other two are real, correct facts about something else entirely, and injecting them will not help.",
         "An irrelevant passage does not make the model refuse to answer — it usually still states a confident-sounding number, just the wrong one, sometimes pulled from the wrong passage's own facts. Only the genuinely relevant passage reliably produces the real answer.",
-        "Checked directly: for 'how deep is the Mariana Trench', only the Mariana Trench passage reaches '10,935 meters' — the reef passage produces '12,767 meters', the Amazon passage produces '100 meters'. For the Burj Khalifa question, only its own passage reaches '828 meters'. For the Venus question, only its own passage reaches '243 Earth days'."
-      ]
+        "All nine combinations, measured in a real browser: the Mariana Trench question reaches '10,935 meters' only from its own passage — the reef passage answers '3,300 meters' and the Amazon passage answers '12,777 meters'. The Burj Khalifa question reaches '828 meters tall' only from its own passage; the Statue of Liberty passage answers '93 meters tall is the Burj Khalifa' and the Great Wall passage answers '21,196'. The Venus question reaches '243 Earth days' only from its own passage; the Burj passage answers '143 Earth days' and the Great Wall passage answers '136 Earth days'."
+      ],
+      "solution": {
+        "problem": "Three questions, three candidate passages each, and only one of the three is genuinely about the question's subject. The other two are real, accurate facts about something else. You choose a passage, and then the model actually runs on it — the score is whether its real completion contains the true answer, not whether you picked the passage that looked right.",
+        "steps": [
+          {
+            "title": "Read the question's subject, not its shape",
+            "body": "All eight passages in this corpus have the same shape: a landmark or place, a headline number, a unit. That similarity is the whole difficulty. 'How many meters deep is the Mariana Trench' and 'How many kilometers does the Great Barrier Reef stretch' both want a big number with a unit, so shape alone cannot separate them. Match on the actual subject — Mariana Trench, Burj Khalifa, Venus — and ignore everything else."
+          },
+          {
+            "title": "See what a wrong passage really does",
+            "body": "It does not make the model refuse. Measured in a real browser: asked how deep the Mariana Trench is with the Great Barrier Reef passage injected, the model answers '3,300 meters'; with the Amazon River passage injected it answers 'The deepest point of the Mariana Trench is 12,777 meters deep.' Neither number appears in either passage — the model invented both, and neither is flagged as a guess. Only the trench's own passage produces 'at 10,935 meters below sea level'."
+          },
+          {
+            "title": "Confirm the pattern holds on the other two rounds",
+            "body": "The Burj Khalifa question, given the Statue of Liberty passage, answers '93 meters tall is the Burj Khalifa.' — it lifts the distractor's own number and asserts it about the wrong building, which is the failure mode worth remembering. Given the Great Wall passage it answers '21,196', the wall's length, in the wrong unit, for the wrong thing. The Venus question invents '143 Earth days' from the Burj passage and '136 Earth days' from the Great Wall passage. Nine combinations measured, and the only three that reach the true answer are the three subject matches."
+          },
+          {
+            "title": "Test rather than assume",
+            "body": "The 'test this passage' button is not a formality — it is the level's actual scoring step. A round you have chosen a passage for but never tested counts as unanswered, and the Submit button stays blocked while any round is untested. Choose, run the model, read what it really said: the trench answer in particular arrives late in the completion, after the model has restated the question back to itself."
+          }
+        ],
+        "answer": "Pick each question's own subject: the Mariana Trench passage for the trench question, the Burj Khalifa passage for the height question, the Venus passage for the day-length question — then test each one. Autofill selects those three passages and runs the same real decode a click would, so the score comes from the model's actual output: 3 of 3, three stars.",
+        "takeaway": "Retrieval precision is not a nicety upstream of generation — it is the answer. An off-topic passage does not degrade the output gracefully; it produces a fresh, confident, completely fabricated number, which is worse than returning nothing at all."
+      }
     },
     {
       "id": "7-2-l3",
       "title": "Curate the Context",
       "difficulty": "hard",
-      "instructions": "The Mariana Trench passage is the real answer to this question, but a Great Barrier Reef passage has to be included alongside it. Choose the order and how much of the distractor to keep, then test — until the real model's answer is actually correct.",
+      "instructions": "The Mariana Trench passage is the real answer to this question, but a Statue of Liberty passage — also a height in meters — has to be included alongside it. Choose the order and how much of the distractor to keep, then test — until the real model's answer is actually correct.",
       "engineType": "groundedGeneration",
       "engineConfig": {
         "mode": "curate-context",
         "corpus": "retrieval-facts",
         "maxTokens": 20,
         "targetFactId": "mariana",
-        "distractorFactId": "reef"
+        "distractorFactId": "statue-liberty"
       },
       "passCriteria": {
         "metric": "attemptsToSolve",
@@ -106,10 +152,33 @@
       ],
       "xpReward": 50,
       "hints": [
-        "There are only 4 combinations here: which passage comes first, and whether the distractor is trimmed down or left whole. Try the whole distractor first, in either order, and watch what the model actually does with it.",
-        "A full, untrimmed distractor tends to hijack the model's attention regardless of where you put it — it just keeps talking about the reef instead of answering the question. Trimming the distractor down to a single sentence keeps it present without letting it dominate.",
-        "Checked directly against the real model: the only one of the 4 combinations that reaches '10,935 meters' is the trimmed distractor placed first, with the full Mariana Trench passage placed right before the question — every other arrangement fails."
-      ]
+        "There are only four combinations here: which passage comes first, and whether the Statue of Liberty passage is trimmed to one sentence or left whole. Note that the board already starts on one of the four — trench first, distractor whole — so pressing test without changing anything still spends an attempt, and three stars needs the very first attempt to land.",
+        "This distractor is dangerous precisely because it answers in the same units the question asks for: the statue is 93 meters tall, the question wants meters deep. Ask what the model sees immediately before the question, and how much of it there is — a long passage sitting in that position is something the model can simply carry on writing instead of answering.",
+        "All four measured in a real browser: three work and one fails. The failure is the board's own starting arrangement — trench first, full statue passage last — where the model abandons the question and just continues the statue passage: 'The Statue of Liberty stands on Liberty Island in New York Harbor. From base to torch, the statue'. Either fix rescues it independently: trimming the statue passage to one sentence gives ' 10,935 meters below sea level' even with the trench first, and moving the statue passage to the front gives ' 10,935 meters' even untrimmed. Statue first and trimmed also works, answering ' 10935 meters'."
+      ],
+      "solution": {
+        "problem": "You must answer how deep the Mariana Trench is, and the context has to contain both the trench passage and a Statue of Liberty passage — you cannot drop the distractor. All you control is the order of the two and whether the distractor is kept whole or trimmed to its first sentence. That is four combinations, and the score is how few attempts it takes to find one where the model's real answer contains 10,935. Three of the four work; the fourth is the one the board starts on.",
+        "steps": [
+          {
+            "title": "Enumerate the whole space first",
+            "body": "Two binary choices means exactly four contexts: trench-first or statue-first, crossed with the full statue passage or just its first sentence. Four is small enough to reason through before spending anything — and worth doing, because three stars needs the very first attempt to land, two stars needs it within two, and the level stops passing past four. The board opens on trench-first with the full statue passage, so a reflexive press of test this context is not a free look: it is attempt one."
+          },
+          {
+            "title": "See what the bad arrangement actually does",
+            "body": "Measured in a real browser, trench-first with the full statue passage produces: 'The Statue of Liberty stands on Liberty Island in New York Harbor. From base to torch, the statue'. The model does not answer wrongly — it does not answer at all. Three sentences about a 93-meter statue sit between the trench facts and the question, and continuing them is simply a better-supported next token than answering. That is the whole failure: not a hallucinated number, but a question that never gets addressed."
+          },
+          {
+            "title": "Fix it by position, or fix it by size",
+            "body": "The two controls are independent fixes for the same problem. Move the statue passage to the front and the trench sentences land next to the question: ' 10,935 meters', even with the statue passage left whole. Or leave the trench first but trim the statue to one sentence, so there is too little of it to be worth continuing: ' 10,935 meters below sea level'. Both were measured, and both work."
+          },
+          {
+            "title": "Apply both at once and stop guessing",
+            "body": "Applying both fixes together — statue passage first, trimmed to one sentence — leaves the trench passage adjacent to the question with only a single distracting sentence in the context. That combination answers ' 10935 meters', and it is the one to pick if you want the first attempt to be the only attempt. Note the model dropped the comma there: the level compares digits, not punctuation, so it still counts."
+          }
+        ],
+        "answer": "Change both controls before testing anything: Statue of Liberty first, first sentence only. Then test once — the model answers '10935 meters', solved on attempt 1, three stars. Autofill does not take that arrangement on trust: it decodes each of the four candidates for real, in most-promising-first order, and submits only the one that genuinely reaches the fact, so the attempt it records is a run that actually worked on your device.",
+        "takeaway": "Context engineering is a real lever, not a superstition: the same retrieved passages, reordered or trimmed, are the difference between an answer and a model that wanders off into the distractor. Position and proportion are parameters you control, and they matter most exactly when the distractor speaks the same language as the answer — here, another height in meters."
+      }
     }
   ]
 }

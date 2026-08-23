@@ -8,6 +8,8 @@ import {
   containsAnswer,
   buildGroundedPrompt,
   buildCuratedContextText,
+  curateCandidates,
+  solve,
   type GroundedFact,
   type GroundedGenerationConfig,
 } from '@/engines/groundedGenerationEngine';
@@ -355,5 +357,128 @@ describe('groundedGenerationEngine — submit', () => {
     let state = initState(config, identifyRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('groundedGenerationEngine — solve (the worked solution\'s autofill)', () => {
+  it('picks the real grounded side of every identify round', async () => {
+    const config: GroundedGenerationConfig = {
+      mode: 'identify-grounded',
+      corpus: 'retrieval-facts',
+      maxTokens: 10,
+      factIds: ['a', 'b', 'c'],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: makeFakeCausalLM([FACT_A, FACT_B, FACT_C]) });
+    const solved = solve(initState(config, identifyRules, prepared));
+
+    expect(solved.identifyRounds.every((r) => r.pick === r.groundedSide)).toBe(true);
+    const result = evaluate(solved);
+    expect(result.value).toBeCloseTo(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('chooses each pick round\'s own passage and scores full marks once the real decodes are supplied', async () => {
+    const config: GroundedGenerationConfig = {
+      mode: 'pick-passage',
+      corpus: 'retrieval-facts',
+      maxTokens: 10,
+      rounds: [
+        { targetFactId: 'a', distractorFactIds: ['b', 'c'] },
+        { targetFactId: 'c', distractorFactIds: ['a', 'b'] },
+      ],
+    };
+    const causalLM = makeFakeCausalLM([FACT_A, FACT_B, FACT_C]);
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM });
+    const state = initState(config, pickRules, prepared);
+
+    // Exactly what the canvas does: decode each round's own passage for real,
+    // then hand the resulting text back to solve().
+    const decodedTexts: string[] = [];
+    for (const round of state.pickRounds) {
+      const fact = [FACT_A, FACT_B, FACT_C].find((f) => f.id === round.targetFactId)!;
+      const prompt = buildGroundedPrompt(fact.sentences.join(' '), fact.query);
+      decodedTexts.push(await greedyDecode(causalLM, prompt, config.maxTokens));
+    }
+    const solved = solve(state, { decodedTexts });
+
+    expect(solved.pickRounds.map((r) => r.chosenFactId)).toEqual(['a', 'c']);
+    const result = evaluate(solved);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('only selects the passages when no decodes are supplied — it never invents a completion', async () => {
+    const config: GroundedGenerationConfig = {
+      mode: 'pick-passage',
+      corpus: 'retrieval-facts',
+      maxTokens: 10,
+      rounds: [{ targetFactId: 'a', distractorFactIds: ['b', 'c'] }],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: makeFakeCausalLM([FACT_A, FACT_B, FACT_C]) });
+    const solved = solve(initState(config, pickRules, prepared));
+
+    expect(solved.pickRounds[0]!.chosenFactId).toBe('a');
+    expect(solved.pickRounds[0]!.decodedText).toBeNull();
+    expect(evaluate(solved).value).toBe(0);
+  });
+
+  it('offers all four curated arrangements, trimmed ones first', () => {
+    const candidates = curateCandidates();
+    expect(candidates).toHaveLength(4);
+    expect(new Set(candidates.map((c) => `${c.order}/${c.truncateDistractor}`)).size).toBe(4);
+    expect(candidates.slice(0, 2).every((c) => c.truncateDistractor)).toBe(true);
+  });
+
+  it('submits the searched-out arrangement as a single attempt, scoring 3 stars', async () => {
+    const config: GroundedGenerationConfig = {
+      mode: 'curate-context',
+      corpus: 'retrieval-facts',
+      maxTokens: 20,
+      targetFactId: 'a',
+      distractorFactId: 'b',
+    };
+    const causalLM = makeFakeCausalLM([FACT_A, FACT_B]);
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM });
+    const state = initState(config, curateRules, prepared);
+
+    // The canvas's own search: decode every candidate for real, keep the first
+    // that actually reaches the fact, and submit only that one.
+    let curated: (ReturnType<typeof curateCandidates>[number] & { decodedText: string }) | null = null;
+    for (const candidate of curateCandidates()) {
+      const context = buildCuratedContextText(FACT_A, FACT_B, candidate.order, candidate.truncateDistractor);
+      const decodedText = await greedyDecode(causalLM, buildGroundedPrompt(context, FACT_A.query), config.maxTokens);
+      if (containsAnswer(decodedText, FACT_A.answer)) {
+        curated = { ...candidate, decodedText };
+        break;
+      }
+    }
+    expect(curated).not.toBeNull();
+
+    const solved = solve(state, { curated: curated! });
+    expect(solved.order).toBe(curated!.order);
+    expect(solved.truncateDistractor).toBe(curated!.truncateDistractor);
+    expect(solved.attempts).toBe(1);
+    expect(solved.solvedAtAttempt).toBe(1);
+
+    const result = evaluate(solved);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+    expect(result.passed).toBe(true);
+  });
+
+  it('spends no attempt when no arrangement is supplied', async () => {
+    const config: GroundedGenerationConfig = {
+      mode: 'curate-context',
+      corpus: 'retrieval-facts',
+      maxTokens: 10,
+      targetFactId: 'a',
+      distractorFactId: 'b',
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: makeFakeCausalLM([FACT_A]) });
+    const solved = solve(initState(config, curateRules, prepared));
+
+    expect(solved.attempts).toBe(0);
+    expect(solved.solved).toBe(false);
+    expect(solved.order).toBe(curateCandidates()[0]!.order);
   });
 });

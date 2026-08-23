@@ -23,6 +23,8 @@ import {
   buildGroundedPrompt,
   buildCuratedContextText,
   containsAnswer,
+  curateCandidates,
+  solve,
   type GroundedFact,
   type GroundedGenerationAction,
   type GroundedGenerationConfig,
@@ -33,6 +35,7 @@ import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -65,7 +68,9 @@ export function GroundedGenerationCanvas({ game, level, onScore, onSubmit }: Gam
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board state={state} dispatch={dispatch} setState={setState} onScore={onScore} onSubmit={onSubmit} />
+      )}
     </ModelGate>
   );
 }
@@ -73,11 +78,14 @@ export function GroundedGenerationCanvas({ game, level, onScore, onSubmit }: Gam
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: GroundedGenerationState;
   dispatch: (action: GroundedGenerationAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: GroundedGenerationState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -91,6 +99,77 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. Only level 1 can be filled from state alone — the
+  // other two levels are scored on what the model actually produces, so the
+  // fill runs the same real decodes a player's own clicks would, then hands
+  // the resulting text to `solve()`. Level 3 additionally *searches*: each
+  // arrangement is decoded for real and the first one that genuinely reaches
+  // the fact is the only one submitted as an attempt, so the recorded
+  // `attemptsToSolve` stays honest rather than counting the search.
+  const [filling, setFilling] = useState(false);
+
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        setFilling(true);
+        try {
+          if (state.mode === 'identify-grounded') {
+            const solved = solve(state);
+            setState(solved);
+            setRevealed(true);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          if (state.mode === 'pick-passage') {
+            const decodedTexts: (string | null)[] = [];
+            for (const round of state.pickRounds) {
+              const target = factLookup(state.facts, round.targetFactId);
+              if (!target) {
+                decodedTexts.push(null);
+                continue;
+              }
+              const prompt = buildGroundedPrompt(target.sentences.join(' '), target.query);
+              decodedTexts.push(await greedyDecode(tinyCausalLM, prompt, state.config.maxTokens));
+            }
+            const solved = solve(state, { decodedTexts });
+            setState(solved);
+            setRevealed(true);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          const target = factLookup(state.facts, state.targetFactId);
+          const distractor = factLookup(state.facts, state.distractorFactId);
+          if (!target || !distractor) return;
+
+          for (const candidate of curateCandidates()) {
+            const context = buildCuratedContextText(
+              target,
+              distractor,
+              candidate.order,
+              candidate.truncateDistractor
+            );
+            const prompt = buildGroundedPrompt(context, target.query);
+            const decodedText = await greedyDecode(tinyCausalLM, prompt, state.config.maxTokens);
+            if (!containsAnswer(decodedText, target.answer)) continue;
+            const solved = solve(state, { curated: { ...candidate, decodedText } });
+            setState(solved);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          // No arrangement reached the fact on this device. Set up the most
+          // promising one and stop: registering a failed attempt would only
+          // spend the player's budget on a run that did not work.
+          setState(solve(state));
+        } finally {
+          setFilling(false);
+        }
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));
@@ -117,7 +196,8 @@ function Board({
           <RotateCcw size={13} strokeWidth={2} />
           Reset
         </Button>
-        {!revealed && blocked && <span className="label">{submitHint(state)}</span>}
+        {filling && <Tag tone="accent">running the solution&rsquo;s contexts…</Tag>}
+        {!filling && !revealed && blocked && <span className="label">{submitHint(state)}</span>}
         {revealed && <Tag tone="accent">answers revealed</Tag>}
         <Button
           variant="primary"
