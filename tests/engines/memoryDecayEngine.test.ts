@@ -4,6 +4,8 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
+  recommendedTraining,
   measureDecay,
   measureRecall,
   characterAccuracy,
@@ -363,5 +365,55 @@ describe('memoryDecayEngine — level config coverage', () => {
       const result = evaluate(state);
       expect(result.metric).toBe(level.passCriteria.metric);
     }
+  });
+});
+
+describe('memoryDecayEngine — solve', () => {
+  it('trains the network from a clean start at the recommended settings', async () => {
+    // A short budget: a full run of this RNN takes seconds, and what is being
+    // checked is the wiring, not the accuracy the real budget reaches.
+    const config = { ...configFor(0), maxEpochs: 4 };
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const base = initState(config, rulesFor(0), prepared);
+    const solved = solve(base);
+    const recommended = recommendedTraining(base);
+
+    expect(solved.epochsTrained).toBe(4);
+    expect(solved.hiddenSize).toBe(recommended.hiddenSize);
+    expect(solved.learningRate).toBe(recommended.learningRate);
+    expect(evaluate(solved).value).toBeGreaterThan(evaluate(base).value);
+  });
+
+  it('recommends the widest hidden layer the level allows', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const recommended = recommendedTraining(initState(config, rulesFor(0), prepared));
+
+    expect(recommended.hiddenSize).toBe(config.hiddenSizeRange![1]);
+    expect(recommended.learningRate).toBeGreaterThan(config.learningRate);
+    expect(recommended.learningRate).toBeLessThanOrEqual(config.learningRateRange![1]);
+  });
+
+  it('answers each decay round with the step the hidden state really flattened at', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const solved = solve(initState(config, rulesFor(1), prepared));
+
+    for (const round of solved.rounds) expect(round.estimate).toBe(round.trueDecayStep);
+    expect(evaluate(solved).value).toBe(0);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('runs the recall trials, which is the only way that level scores at all', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { corpus: fakeCorpus });
+    const base = initState(config, rulesFor(2), prepared);
+    const solved = solve(base);
+
+    // Nothing to score before the trials run — the metric compares accuracy at
+    // the nearest gap against the furthest.
+    expect(evaluate(base).value).toBe(0);
+    expect(solved.recallResults.length).toBe(config.gapLengths!.length);
+    expect(evaluate(solved).passed).toBe(true);
   });
 });

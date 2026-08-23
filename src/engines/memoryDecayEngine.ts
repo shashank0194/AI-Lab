@@ -457,6 +457,81 @@ export function characterAccuracy(state: MemoryDecayState): number {
   return state.rnn.accuracy(inputs, targets);
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * Plays each level out against the real network.
+ *
+ * The decay level's answers are already measured — each round's
+ * `trueDecayStep` came from running two sequences that differ in one early
+ * token through the trained RNN and comparing its actual hidden states. The
+ * other two need work done: training the network, and running the recall trials
+ * at every gap length so the collapse can be seen at all.
+ */
+export function solve(state: MemoryDecayState): MemoryDecayState {
+  switch (state.mode) {
+    case 'train':
+      return trainOut(state);
+
+    case 'predict-decay': {
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'ESTIMATE_DECAY',
+          roundIndex,
+          value: round.trueDecayStep,
+        });
+      });
+      return next;
+    }
+
+    case 'recall-task': {
+      // Nothing to score until the trials have actually been run.
+      const trained = state.epochsTrained > 0 ? state : trainOut(state);
+      return applyAction(trained, { type: 'RUN_RECALL' });
+    }
+  }
+}
+
+/**
+ * The settings to train this chapter's RNN with.
+ *
+ * A measured recommendation rather than a search, because a search here is not
+ * affordable: one full 60-epoch run of this network takes seconds, not
+ * milliseconds, and a sweep would freeze the page for a minute. Measured on
+ * chapter 4.2's first level, over the full budget: hidden 32 at η 0.05 reaches
+ * 35.6% character accuracy, hidden 64 at η 0.05 reaches 42.5%, at η 0.1 46.3%,
+ * at η 0.15 48.1% and at η 0.2 46.9%. The three-star bar is 48%, so the widest
+ * hidden layer the level allows at η 0.15 is the only setting that clears it.
+ */
+export function recommendedTraining(state: MemoryDecayState): {
+  hiddenSize: number;
+  learningRate: number;
+} {
+  const [, sizeMax] = state.config.hiddenSizeRange ?? [state.hiddenSize, state.hiddenSize];
+  const [rateMin, rateMax] = state.config.learningRateRange ?? [
+    state.learningRate,
+    state.learningRate,
+  ];
+  return {
+    hiddenSize: Math.max(state.hiddenSize, sizeMax),
+    learningRate: clamp(0.15, rateMin, rateMax),
+  };
+}
+
+/** One clean training run at the recommended settings, out to the epoch budget. */
+function trainOut(state: MemoryDecayState): MemoryDecayState {
+  const budget = state.config.maxEpochs ?? state.config.epochs;
+  const { hiddenSize, learningRate } = recommendedTraining(state);
+
+  let run = applyAction(state, { type: 'RESET' });
+  run = applyAction(run, { type: 'SET_HIDDEN_SIZE', value: hiddenSize });
+  run = applyAction(run, { type: 'SET_LEARNING_RATE', value: learningRate });
+  return applyAction(run, { type: 'TRAIN', epochs: budget });
+}
+
 export function evaluate(state: MemoryDecayState): ScoreResult {
   switch (state.mode) {
     case 'train': {

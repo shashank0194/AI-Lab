@@ -53,7 +53,30 @@
         "Watch the loss curve, not the epoch counter. A bigger hidden state gives the network more room to store what it has learned; a higher learning rate makes each update count for more — both matter more than raw training time.",
         "The default hidden size (32) plateaus under 0.37 accuracy however long you train it — the ceiling is the network's capacity, not the clock. Grow the hidden state before you grow the epoch count.",
         "Checked directly on this corpus: default settings (hidden 32) plateau around 0.35–0.37 accuracy (1 star) by epoch 60. Growing the hidden state to 64 and raising the learning rate to about 0.2, trained the full 60 epochs, reaches roughly 0.44–0.47 (2 stars) — the strongest verified combination found in this range."
-      ]
+      ],
+      "solution": {
+        "problem": "A real character-level RNN, trained live in your browser on the Austen corpus. You choose the hidden size and the learning rate and spend a 60-epoch budget; the score is character accuracy — how often the network's next-character prediction is right. Untrained it sits at 5.6%, roughly one in eighteen, which is what guessing looks like over this vocabulary.",
+        "steps": [
+          {
+            "title": "Understand what the hidden state has to carry",
+            "body": "Unlike the n-gram model, this network has no table of contexts. It has one hidden vector that it rewrites after every character, and everything it knows about what came before has to fit in it. Hidden size is literally how much room that is."
+          },
+          {
+            "title": "Spend the size budget",
+            "body": "Measured over the full 60 epochs: hidden 32 at the shipped learning rate reaches 35.6%, and hidden 64 — the widest the level allows — reaches 42.5% with nothing else changed. On a fixed epoch budget the bigger state is straightforwardly better here, because 32 units is not enough to hold the letter statistics of English."
+          },
+          {
+            "title": "Then find the learning rate that fits the budget",
+            "body": "At hidden 64: η = 0.05 gives 42.5%, η = 0.1 gives 46.3%, η = 0.15 gives 48.1%, and η = 0.2 falls back to 46.9%. The three-star bar is 48%, so exactly one of those settings clears it. This is the ordinary shape — a rate too low wastes the budget, too high destabilises the run, and the best is at the edge of stability."
+          },
+          {
+            "title": "Read what 48% actually means",
+            "body": "Right about half the time, on a task with a 64-character vocabulary. The network has learned that 'q' is followed by 'u', that spaces follow words, that 'th' is common — real structure, from characters alone, with no words and no dictionary. It has also learned nothing about meaning, which is what the rest of this chapter is about."
+          }
+        ],
+        "answer": "Hidden size 64 with the learning rate raised to 0.15, trained the full 60 epochs — 48.1% character accuracy and three stars. Autofill applies exactly those settings and runs the training through the same animated loop the manual controls use.",
+        "takeaway": "An RNN compresses all of history into one fixed-size vector, and that vector is the entire memory. Everything good and bad about recurrence follows from that one design decision — including the failure the next two levels measure."
+      }
     },
     {
       "id": "4-2-l2",
@@ -90,7 +113,30 @@
         "You're reading a real curve, not guessing — cosine similarity between the two hidden states climbs toward 1 as the network overwrites what made them different. The step where it first crosses the threshold is the answer.",
         "For a network this small the state gets swamped fast — most of the erasing happens in the first handful of steps, not gradually across the whole 200-token sequence. Look at the very start of the curve, not the tail.",
         "Checked against this exact trained network (seed 19, 40 warmup epochs): the three rounds' hidden states become indistinguishable (similarity ≥ 0.99) at distances 2, 1 and 1 — the opening token is essentially gone within a step or two, every time."
-      ]
+      ],
+      "solution": {
+        "problem": "The chapter's real measurement. Two sequences are run through the trained RNN that differ only in one early token; the engine then compares the network's actual hidden states step by step and records when they stop differing — the step at which the network has forgotten the difference. You estimate that step for three rounds, and the score is your mean absolute error.",
+        "steps": [
+          {
+            "title": "Know what is being measured, exactly",
+            "body": "This is not a proxy or a simulation. The engine runs both sequences through the same trained network and watches the two hidden-state trajectories converge back together. The step where their similarity crosses the 0.99 threshold is the answer — the point past which no downstream computation could tell the two inputs apart."
+          },
+          {
+            "title": "Expect a small number, not a large one",
+            "body": "The instinct is that memory fades gradually over tens of steps. Measured on this trained network, the three rounds come out at 2, 1 and 1. One or two characters after the difference, the hidden state has been overwritten so thoroughly that the earlier token is unrecoverable."
+          },
+          {
+            "title": "Understand why it is that fast",
+            "body": "Each step multiplies the hidden state by a recurrent weight matrix and squashes it through tanh. Any component whose effective multiplier is below 1 shrinks geometrically, and tanh's saturation pushes most of them there. Over 200 steps of sequence, information from step 3 has been multiplied down hundreds of times — the same vanishing-gradient arithmetic from chapter 3.3, running forwards instead of backwards."
+          },
+          {
+            "title": "Note how forgiving the scoring is",
+            "body": "The pass mark is a mean error of 22 steps and three stars is 7, against true answers of 1 and 2 — so almost any small guess earns three stars. That generosity is deliberate: the level is testing whether you expect 'a handful of steps' rather than 'most of the sequence', not whether you can pin the exact number."
+          }
+        ],
+        "answer": "Estimate 2, 1, 1 — the steps at which the hidden states really re-converge. Autofill enters the measured values for an error of 0 and three stars. Any estimate within a few steps also earns three stars.",
+        "takeaway": "This is the concrete version of \"RNNs have short memory\". Not a metaphor and not a tendency — a measurable one-to-two-step horizon on this network, which is exactly why attention, with its direct connection to every earlier position, replaced recurrence."
+      }
     },
     {
       "id": "4-2-l3",
@@ -128,7 +174,30 @@
         "Recall is measured fresh each trial — a marker, then a random gap, then the network has to name the marker again with no other clue. The pattern that matters is how sharply accuracy falls as the gap grows, not the raw number at any one gap.",
         "Growing the hidden state pushes the distance where recall collapses further out, but it doesn't remove the collapse — even a much bigger state still forgets eventually, because the bottleneck is the single fixed-size vector every step has to pass through, not how big that vector is.",
         "Checked directly on this exact setup: even at the default warmup (50 epochs, hidden size 32) recall already holds up close (gap 5: around 75–85%) while every longer gap sits near 0% — enough for 2 stars with no extra training at all. Pushing training a bit further (to roughly 60–70 epochs) tends to sharpen the near-gap accuracy toward 3-star territory, but training all the way to the epoch budget (150) tends to make it worse again, since this small fixed training set starts to destabilise a plain RNN well before then — more training is not automatically better here."
-      ]
+      ],
+      "solution": {
+        "problem": "A synthetic recall task: the sequence contains a token that has to be reproduced after a gap, and the gap is varied across 5, 15, 30, 60 and 100 steps with 40 trials each. The score rewards showing the collapse — accuracy that works at short range and fails at long — rather than accuracy alone.",
+        "steps": [
+          {
+            "title": "Run the trials, because nothing scores until you do",
+            "body": "The metric compares accuracy at the shortest gap against the longest, so before the trials run there is nothing to compare and the score is zero. Training on its own gets you nothing here — the button that matters is the one that runs the recall sweep."
+          },
+          {
+            "title": "Read the collapse",
+            "body": "Measured on the trained network: 85% accuracy at a gap of 5, and 0% at gaps of 15, 30, 60 and 100. Not a decline — a cliff between 5 and 15 steps. That matches the previous level's 1–2 step decay measurement almost exactly, arrived at by a completely different method."
+          },
+          {
+            "title": "Resist the urge to fix it with capacity",
+            "body": "The hidden size slider goes to 128 here, four times the default. It does not move the cliff meaningfully, because the problem is not how much room the state has — it is that every step overwrites it. A bigger vector forgets the same way, just with more coordinates."
+          },
+          {
+            "title": "See what the score is really rewarding",
+            "body": "The value is half the collapse (nearest minus furthest accuracy) plus half the nearest accuracy, so the maximum comes from a network that genuinely recalls at short range and genuinely fails at long range. A network that failed everywhere would score nothing. The level wants a working demonstration of the limitation, not a broken model."
+          }
+        ],
+        "answer": "Train the network and run the recall sweep — 85% at a gap of 5 against 0% at every gap from 15 upwards, a collapse score of 0.85 and three stars. Autofill trains if needed and runs the trials.",
+        "takeaway": "\"Long-range dependency\" stops being an abstraction once you have watched it fail at fifteen tokens. LSTMs and GRUs were built to push this cliff further out, and attention removed it by giving every position a direct path to every other — which is where World 5 begins."
+      }
     }
   ]
 }

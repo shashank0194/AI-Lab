@@ -20,6 +20,8 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
+  recommendedTraining,
   measureDecay,
   type MemoryDecayAction,
   type MemoryDecayConfig,
@@ -30,6 +32,7 @@ import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Readout, Slider, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules, ScoreResult } from '@/types/game';
 
@@ -60,7 +63,15 @@ export function RecurrenceCanvas({ game, level, onScore, onSubmit }: GameCompone
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
+      )}
     </ModelGate>
   );
 }
@@ -68,11 +79,14 @@ export function RecurrenceCanvas({ game, level, onScore, onSubmit }: GameCompone
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: MemoryDecayState;
   dispatch: (action: MemoryDecayAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: MemoryDecayState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -105,6 +119,42 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  /**
+   * The solution's autofill.
+   *
+   * Training levels go through the animated loop rather than through the
+   * engine's own `solve`, which trains in one synchronous burst: a full run of
+   * this RNN takes seconds, so doing it inside the click would freeze the tab
+   * and show the player nothing. The settings come from the same measured
+   * recommendation `solve` uses; only the pacing differs. `fillPending` then
+   * submits once the budget is spent.
+   */
+  const [fillPending, setFillPending] = useState(false);
+
+  useSolutionFill(
+    useCallback(() => {
+      if (state.mode === 'train') {
+        const { hiddenSize, learningRate } = recommendedTraining(state);
+        dispatch({ type: 'RESET' });
+        dispatch({ type: 'SET_HIDDEN_SIZE', value: hiddenSize });
+        dispatch({ type: 'SET_LEARNING_RATE', value: learningRate });
+        setFillPending(true);
+        setIsTraining(true);
+        return;
+      }
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, dispatch, setState, onSubmit])
+  );
+
+  useEffect(() => {
+    if (!fillPending || !exhausted) return;
+    setFillPending(false);
+    onSubmit(evaluate(state));
+  }, [fillPending, exhausted, state, onSubmit]);
 
   const isQuiz = state.mode === 'predict-decay';
   const isTrainable = state.mode === 'train' || state.mode === 'recall-task';
