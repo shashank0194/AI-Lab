@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type RobustnessConfig,
 } from '@/engines/robustnessEngine';
 import type { CausalLMDep, CorpusDep, TokenDistribution } from '@/engines/deps';
@@ -258,5 +259,79 @@ describe('robustnessEngine — submit', () => {
     let state = initState(config, attemptsRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('robustnessEngine — solve (the worked solution\'s autofill)', () => {
+  it('tests exactly one attack — the one that really breaks the rule — for three stars', async () => {
+    const config: RobustnessConfig = {
+      mode: 'find-attack',
+      corpus: 'prompts',
+      maxTokens: 10,
+      expectedWordCount: 1,
+      attackIds: ['atk-bad', 'atk-other', 'atk-good'],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: findAttackCausalLM });
+    const solved = solve(initState(config, attemptsRules, prepared));
+
+    expect(solved.attempts).toBe(1);
+    expect(solved.solvedAtAttempt).toBe(1);
+    expect(solved.attackRounds.filter((r) => r.tested).map((r) => r.id)).toEqual(['atk-good']);
+    const result = evaluate(solved);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('tests exactly one defense — the one that really holds', async () => {
+    const config: RobustnessConfig = {
+      mode: 'test-defense',
+      corpus: 'prompts',
+      maxTokens: 10,
+      expectedWordCount: 1,
+      fixedAttackId: 'atk-good',
+      defenseIds: ['def-bad', 'def-good'],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: testDefenseCausalLM });
+    const solved = solve(initState(config, attemptsRules, prepared));
+
+    expect(solved.defenseRounds.filter((r) => r.tested).map((r) => r.id)).toEqual(['def-good']);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('spends no attempt when nothing in the set actually works', async () => {
+    const config: RobustnessConfig = {
+      mode: 'find-attack',
+      corpus: 'prompts',
+      maxTokens: 10,
+      expectedWordCount: 1,
+      attackIds: ['atk-bad', 'atk-other'],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: findAttackCausalLM });
+    const solved = solve(initState(config, attemptsRules, prepared));
+
+    expect(solved.attempts).toBe(0);
+    expect(solved.solved).toBe(false);
+    expect(evaluate(solved).passed).toBe(false);
+  });
+
+  it('answers each transfer round with whether the defense really held there', async () => {
+    const config: RobustnessConfig = {
+      mode: 'defense-transfer',
+      corpus: 'prompts',
+      maxTokens: 10,
+      expectedWordCount: 1,
+      fixedDefenseId: 'def-good',
+      transferAttackIds: ['atk-bad', 'atk-other'],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: transferCausalLM });
+    const solved = solve(initState(config, transferRules, prepared));
+
+    // Mixed outcomes: a solution that answered "holds" everywhere scores half.
+    const byId = new Map(solved.transferRounds.map((r) => [r.id, r]));
+    expect(byId.get('atk-bad')!.guess).toBe(true);
+    expect(byId.get('atk-other')!.guess).toBe(false);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
   });
 });

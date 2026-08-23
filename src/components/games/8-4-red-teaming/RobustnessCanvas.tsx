@@ -18,6 +18,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type AttackRound,
   type DefenseRound,
   type RobustnessAction,
@@ -30,6 +31,7 @@ import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -60,7 +62,9 @@ export function RobustnessCanvas({ game, level, onScore, onSubmit }: GameCompone
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board state={state} dispatch={dispatch} setState={setState} onScore={onScore} onSubmit={onSubmit} />
+      )}
     </ModelGate>
   );
 }
@@ -68,11 +72,14 @@ export function RobustnessCanvas({ game, level, onScore, onSubmit }: GameCompone
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: RobustnessState;
   dispatch: (action: RobustnessAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: RobustnessState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -86,6 +93,23 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. Pure: every trial this level scores was already
+  // run against the real model during `prepare()`, so the answers come out of
+  // that same measurement rather than from anything new.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      // `solve()` returns the state untouched when it has nothing to answer
+      // from — a measurement that failed to prepare, a set with no genuinely
+      // working candidate. Submitting that would record a failed attempt the
+      // player never made, so do nothing instead.
+      if (solved === state) return;
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));

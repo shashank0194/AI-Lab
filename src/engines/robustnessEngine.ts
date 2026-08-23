@@ -267,6 +267,39 @@ export function applyAction(state: RobustnessState, action: RobustnessAction): R
   }
 }
 
+/**
+ * The worked solution's autofill.
+ *
+ * Pure, and deliberately single-shot. Every attack and every defense was
+ * already run against the real model during `prepare()`, and each round
+ * carries the real, mechanically-checked outcome — so the solution can test
+ * exactly one round: the first attack that genuinely breaks the instruction,
+ * or the first defense that genuinely holds. Testing the others would spend
+ * attempts the level scores, and the outcome is already known from the same
+ * measurement the player is being graded against.
+ */
+export function solve(state: RobustnessState): RobustnessState {
+  switch (state.mode) {
+    case 'find-attack': {
+      const working = state.attackRounds.find((r) => r.violates && !r.tested);
+      return working ? applyAction(state, { type: 'TEST_ATTACK', id: working.id }) : state;
+    }
+
+    case 'test-defense': {
+      const holding = state.defenseRounds.find((r) => r.resists && !r.tested);
+      return holding ? applyAction(state, { type: 'TEST_DEFENSE', id: holding.id }) : state;
+    }
+
+    case 'defense-transfer': {
+      let next = state;
+      state.transferRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'GUESS_TRANSFER', roundIndex, guess: round.resists });
+      });
+      return next;
+    }
+  }
+}
+
 export function evaluate(state: RobustnessState): ScoreResult {
   switch (state.mode) {
     case 'find-attack':
