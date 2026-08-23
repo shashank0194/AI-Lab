@@ -513,10 +513,29 @@ know, or which specific attacks/defenses do or don't work**: treat Node q8 as a 
 only. Before finalizing which items ship in a level, widen that level's config to the full real
 candidate pool (every fact, every attack, every defense under consideration), run it once for real in
 a real browser, and read the actual per-item results straight off the rendered board — the same
-"temporarily widen the config, sweep for real, narrow back down" move both 8.3 and 8.4 used. Don't
-budget calibration time assuming Node gets you most of the way there for this category of chapter; for
-World 7.3/7.4/8.1/8.2's category (structured-output reliability, quantization/timing/attention), Node
-q8 was reliable enough to design against directly.
+"temporarily widen the config, sweep for real, narrow back down" move both 8.3 and 8.4 used.
+
+**Correcting this section's own earlier carve-out**: it used to say that for World 7.3/7.4/8.1/8.2's
+category (structured-output reliability, quantization/timing/attention) "Node q8 was reliable enough to
+design against directly." Adding worked solutions to 7.3 and 7.4 tested that claim against a real
+browser for the first time, and it does not hold for the structured-output half. A Node q8 probe
+reproduced 7.3's existing hints *exactly* — which is what made the divergence so easy to miss — while
+the browser disagreed on every level of both chapters:
+
+| measurement | Node q8 | real browser |
+| --- | --- | --- |
+| 7.3 L1 valid JSON rate, 0 / 1 / 2 examples | 0/6, 3/6, 5/6 | 1/6, 3/6, **6/6** |
+| 7.3 L2 tool-pick accuracy, right tool last | 4/6 | **5/6** |
+| 7.3 L3 retry-fix, fewest examples that validate | **1** | **2** (one example returns valid JSON with the required `tool` field *missing*) |
+| 7.4 L1 tool-hop accuracy, 0 / 1 / 2 examples | 0/4, 3/4, 4/4 | 0/4, **1/4**, **3/4** |
+
+Node and the browser agreed on the *direction* (more examples is better, recency drives tool choice)
+and disagreed on every number and on two decision boundaries — including one that changed which lever
+setting the level's own worked answer should name. So: Node q8 is fine for finding the mechanism, and
+is not evidence for any number that ships in a hint or a solution. Anything quoted in player-facing
+copy gets measured in a real browser, whatever the chapter's category. Where Node q8 *has* matched the
+browser closely is the purely mechanical end — 8.2's attention weights matched to three decimals, and
+7.2's four-way context-arrangement sweep matched exactly.
 
 ## 12. Verify a scoring premise's basic shape against the real model before designing rounds around it — and a defense that's real-ly guaranteed to fail is a legitimate way to keep a level honest
 
@@ -543,3 +562,65 @@ still apply even with perfect Node/browser agreement:
   any future "test several options, find the one that works" level where a real sweep comes back
   suspiciously one-sided: a guaranteed-real distractor built from an already-verified result is often
   cheaper and more honest than hunting for a new real negative case.
+
+## 13. Adding a worked solution to a canvas: the `solve()` / `useSolutionFill` contract
+
+Chapters carry a gated worked solution under the hints (schema, gating and tracking are described in
+the README's "Level solutions"). The canvas-side work is small and the same every time:
+
+- **The engine gains `solve(state, options?) → state`**, built out of its own `applyAction` calls so
+  the result is a state the engine could have reached on its own. It must derive the answer from
+  prepared/measured state, never from a literal in the JSON. Where a level is scored on model output,
+  `solve()` takes that output as an argument rather than producing it — keeping the engine pure and
+  keeping the browser's real generation in the one place that can run it.
+- **The canvas passes `setState` into its `Board`** and calls
+  `useSolutionFill(useCallback(() => { ...; setState(solved); onSubmit(evaluate(solved)); }, [...]))`.
+  If the board has a `revealed` flag, set it too. The hook fires on a nonce *change*, so a canvas
+  mounting mid-chapter never mistakes an earlier level's fill for its own.
+- **Model-backed fills need a visible busy state.** Reuse the chapter's `yieldToPaint()` before the
+  first decode and render a Tag ("running the solution's generations…") while it runs, or the UI looks
+  frozen for the same reason §1 describes for ordinary batched decodes.
+- **Search rather than assert when a search is cheap**, and submit only the run that worked: for a
+  level scored on `attemptsToSolve`, decode each candidate, and dispatch the scoring action *once*,
+  for the candidate that genuinely succeeded. The attempt count then measures a real successful run
+  rather than the search. `curateCandidates()` (7.2), `retryExampleCandidates()` (7.3) and
+  `budgetCandidates()` (7.4) are the existing examples; each documents why its order is what it is.
+- **If nothing works on this device, spend no attempt.** Set the levers and stop, rather than
+  recording a failure the player did not choose.
+
+### Playing a level optimally is a level-design test, and it fails levels that "work"
+
+Filling every level in with its own best answer is the first time many levels get played *perfectly*,
+and that turned up defects no unit test or ordinary playthrough had:
+
+- **7.2 L2**: the correct passage's real answer was truncated mid-number by the level's own
+  `maxTokens` (" ...at 10,"), so a perfect play scored 2/3 and three stars was unreachable. Raised the
+  budget; re-measured all nine pairs.
+- **7.2 L3**: with its configured distractor, *all four* context arrangements reached the answer in
+  both Node and the browser — the "hard" level had no difficulty at all, while its hints insisted
+  three of four fail. Fixed by swapping the distractor to one that answers in the same unit as the
+  question (Statue of Liberty, meters, against a "how many meters deep" question), which made exactly
+  one arrangement fail — and, usefully, that one is the board's own default state.
+- **7.4 L1**: the best available lever setting reaches 3 of 4, so the 3-star bar at 1.0 was
+  unreachable.
+
+So when adding a solution to a level, check what the *best* score actually is before writing the
+answer copy, and treat "the optimal play cannot three-star this" and "every option wins" as bugs in
+the level, not facts to write around. Both are the §5 "canvas 17 is already at 3 stars by default"
+anti-pattern seen from the other end.
+
+### Verification-script notes specific to this flow
+
+- The solution panel only renders when the level's JSON actually has a `solution`, so insert the copy
+  *before* the verification run that exercises the gate — otherwise the run fails at "Show the
+  solution" for a reason that looks like a selector bug.
+- Waiting on a locator whose *text* is what changes ("run this hop" → "running the real model…")
+  silently races: it resolves while the previous render is still on screen, and every capture comes
+  out one round behind with no error. Wait on the busy state appearing and then clearing instead:
+  `busy.waitFor({state:'visible'}).catch(()=>{})` then `busy.waitFor({state:'hidden', timeout})`.
+- `page.locator(...).all()` snapshots locators by index; re-query inside the loop instead of holding
+  the array across renders.
+- A `getByRole('button', {name})` locator that `isVisible()` just reported `true` for can still time
+  out on `waitFor({state:'visible'})` moments later in this app. The reliable idiom remains
+  §1's: `page.waitForSelector('button:has-text("…")')` followed by a DOM `.click()` via
+  `page.evaluate`.

@@ -215,6 +215,22 @@ if (existsSync(ENGINES_DIR)) {
   }
 }
 
+/* ── solution coverage ──────────────────────────────────────── */
+
+// A level with hints is a level a player can get stuck on, and the worked
+// solution is the way out. Ship one without the other and the HUD renders a
+// hints panel with no solution behind it — so this is an error, not a warning.
+for (const game of games.values()) {
+  for (const level of game.levels) {
+    if (level.hints && level.hints.length > 0 && !level.solution) {
+      fail(
+        `${game.id}.json`,
+        `Level "${level.id}" has hints but no solution — every level a player can spend hints on needs a worked solution behind them`
+      );
+    }
+  }
+}
+
 /* ── report ─────────────────────────────────────────────────── */
 
 const levelCount = [...games.values()].reduce((n, g) => n + g.levels.length, 0);
@@ -233,5 +249,5 @@ if (errors.length > 0) {
 }
 
 console.log(
-  `✓ ${games.size} chapters, ${levelCount} levels, ${totalXp} XP total — schema, manifest, unlock graph and engine coverage all valid.`
+  `✓ ${games.size} chapters, ${levelCount} levels, ${totalXp} XP total — schema, manifest, unlock graph, engine and solution coverage all valid.`
 );

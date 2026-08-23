@@ -94,7 +94,7 @@ Paste the line into `.env.local`. The script refuses passwords under 12 characte
 ```bash
 pnpm dev              # validates the curriculum, then starts the dev server
 pnpm build            # validates the curriculum, then builds
-pnpm test             # 958 unit tests, fully offline, no model downloads
+pnpm test             # 1128 unit tests, fully offline, no model downloads
 pnpm test:watch
 pnpm test:coverage
 pnpm test:e2e         # one Playwright smoke test — real browser, real model download, opt-in
@@ -270,6 +270,59 @@ for any level whose config includes one; a canvas needs no code of its own for t
   `src/types/game.ts` — optional so chapters without a canvas yet don't need it, but every level in a
   built chapter should have one before that chapter is considered done.
 
+### Level solutions
+
+Hints are nudges. A `solution` is the whole answer, and it sits behind a gate: the "Show the
+solution" button in the HUD stays locked until every hint on that level has been revealed, and says
+so on hover, focus or tap. Unlocking it opens a confirmation first ("Read the worked solution?"),
+because reading it is a choice the player should make deliberately rather than by mis-clicking.
+
+```json
+"solution": {
+  "problem": "What this level is really measuring, restated — not the instructions again.",
+  "steps": [
+    { "title": "A few words", "body": "One move, worked through on this level's own numbers." }
+  ],
+  "answer": "Exactly what to do, and what autofill will apply.",
+  "takeaway": "The idea that transfers to the next chapter."
+}
+```
+
+- Schema: `levelSolutionSchema` in `src/types/game.ts`. `steps` is 2–8 entries; every field is
+  required. Any level that has `hints` must also have a `solution` — `pnpm validate:games` enforces
+  it.
+- **Every number in a solution is measured, exactly like a hint** — and measured *in a real browser*,
+  not in Node. See "Node q8 is not browser q8" below; this is the single most common way solution
+  copy goes wrong.
+- **Autofill is a real play of the level, never a stored answer key.** The modal ends in a fork:
+  "Fill it in for me" or "I'll fill it in myself". The first calls the engine's `solve()`, which
+  derives the answer from the level's own state and, for model-backed levels, from real generations
+  the canvas runs at fill time. `solve()` never invents model output: anything the model has to
+  produce is passed in as an argument, so a level scored on a real decode is scored on a real decode
+  even when autofilled.
+
+```ts
+// Engines that support autofill export one more function.
+solve(state, options?) → state     // pure; model output arrives via options
+```
+
+- **Wiring a canvas for autofill** takes two lines: pass `setState` down to the board, and call
+  `useSolutionFill(useCallback(() => { ... }, [...]))` with a handler that runs `solve()`, sets the
+  state and calls `onSubmit(evaluate(solved))`. The hook fires on a nonce *change*, so a canvas
+  mounting mid-chapter never mistakes an earlier level's fill for a request of its own.
+- **Search rather than assert, where a search is cheap.** Several levels' solutions try candidates
+  for real and submit only the one that works (`curateCandidates()` in the grounded-generation
+  engine, `retryExampleCandidates()` in the tool-call engine, `budgetCandidates()` in the agent-loop
+  engine). For a level scored on attempts, only the successful run is submitted, so the recorded
+  attempt count reflects a run that genuinely worked rather than the search that found it.
+- **Tracking.** Revealing a hint, opening the solution, autofilling and declining are all recorded
+  (`hint_revealed`, `solution_opened`, `solution_autofilled`, `solution_declined` in
+  `src/types/activity.ts`) and surfaced in the admin dashboard.
+- **Marking.** A level cleared unaided is marked "solved by you" permanently; reading or autofilling
+  the solution afterwards never takes that back. A level first cleared with autofill shows as
+  "solution" on the level list and on the map until it is cleared unaided, at which point it
+  upgrades. The rule lives in one place, `resolveSolvedWith` in `src/lib/solutionProgress.ts`.
+
 ---
 
 ## Keeping levels honest
@@ -299,6 +352,29 @@ unwinnable-by-understanding. Model-backed levels have to be played against the r
 
 Add a case to the script whenever you add a pure-computation level. Model-backed levels are
 calibrated against the real model in the browser instead.
+
+### Node q8 is not browser q8
+
+A throwaway Node script that loads the same model at the same `dtype: 'q8'` is the fastest way to
+explore what a model does, and it is **not** evidence for a number that ships in a hint or a solution.
+Node runs onnxruntime natively; the browser runs it through a WASM execution provider, and on
+recall-ish or instruction-following tasks the two diverge often enough to change a level's answer.
+Measured while adding worked solutions to Worlds 7 and 8:
+
+| measurement | Node q8 | real browser |
+| --- | --- | --- |
+| 7.3 L1 valid-JSON rate at 0 / 1 / 2 worked examples | 0/6, 3/6, 5/6 | 1/6, 3/6, 6/6 |
+| 7.3 L2 tool-pick accuracy with the right tool listed last | 4/6 | 5/6 |
+| 7.3 L3 fewest examples that produce a valid call | 1 | 2 |
+| 7.4 L1 tool-hop accuracy at 0 / 1 / 2 worked examples | 0/4, 3/4, 4/4 | 0/4, 1/4, 3/4 |
+
+The direction agreed every time; the numbers agreed almost never, and in one case the *answer the
+level should teach* changed. Node q8 reproduced 7.3's pre-existing hints exactly, which is precisely
+what made the divergence easy to miss. Purely mechanical measurements — attention weights, a
+four-way context-ordering sweep — have matched closely.
+
+So: use Node to find the mechanism, then measure the number in a real browser before writing it down.
+`.claude/skills/ailab-canvas-workflow` has the Playwright setup this repo uses for that.
 
 ---
 
@@ -364,6 +440,12 @@ Full account in `plan-docs/REMAINING-WORK.md`, A4.
   resulting completion rate, level pass/fail counts, and how often the new navigation events fired
   (`chapter_jumped_ahead`, `chapter_shared_link_opened`) — everything traced back to a specific
   chapter and world.
+- **Solution usage** shows up in the same table: hints revealed, *distinct users* who opened a worked
+  solution (with the raw open count beside it), and an autofilled/declined split — from
+  `hint_revealed`, `solution_opened`, `solution_autofilled` and `solution_declined`. The solution
+  column counts people rather than opens on purpose: re-reading one level's solution three times is
+  one player who needed it. A chapter most players open the solution on is a chapter whose hints are
+  not doing their job.
 - Backed by a single `activity` aggregation grouped by `{chapterId, type}` (both a raw count and a
   distinct-`userId` count per group), joined onto `orderedChapters()` so every chapter shows up even
   with zero activity — not just the ones with rows. A `{chapterId: 1, type: 1}` index
