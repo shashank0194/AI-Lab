@@ -25,6 +25,12 @@ export interface RetrievalRankConfig {
   targetFactId?: string;
   /** chunking mode: which combined documents to build rounds from. */
   documentIds?: string[];
+  /**
+   * The query the worked solution submits for `break-retriever`. Content, so
+   * it lives in the level JSON — embedding it needs the model, which only the
+   * canvas can reach.
+   */
+  solutionQuery?: string;
 }
 
 export interface RetrievalFact {
@@ -350,6 +356,60 @@ function chunkPrecision(state: RetrievalRankState, round: ChunkRound): number {
   }
 
   return 0;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The answers this level's own embeddings produce.
+ *
+ * Ranking and chunking are decided by real cosine similarities already in
+ * state. `break-retriever` needs a query embedded, which the engine has no
+ * model to do, so the canvas embeds the level's own `solutionQuery` and passes
+ * the vector in.
+ */
+export function solve(
+  state: RetrievalRankState,
+  options?: { query?: { text: string; vector: number[] } }
+): RetrievalRankState {
+  switch (state.mode) {
+    case 'rank':
+      return state.trueOrder.length === 0
+        ? state
+        : applyAction(state, { type: 'SET_ORDER', ordering: [...state.trueOrder] });
+
+    case 'break-retriever': {
+      const query = options?.query;
+      if (!query) return state;
+      return applyAction(state, {
+        type: 'SUBMIT_QUERY',
+        query: query.text,
+        vector: query.vector,
+      });
+    }
+
+    case 'chunking': {
+      // Each round is scored independently, so the best strategy is chosen per
+      // round by measuring both against this device's own embeddings.
+      let next = state;
+      state.chunkRounds.forEach((_, roundIndex) => {
+        let best: 'paragraph' | 'sentence' = 'sentence';
+        let bestValue = -Infinity;
+        for (const strategy of ['paragraph', 'sentence'] as const) {
+          const candidate = applyAction(next, { type: 'SET_STRATEGY', roundIndex, strategy });
+          const value = evaluate(candidate).value;
+          if (value > bestValue) {
+            bestValue = value;
+            best = strategy;
+          }
+        }
+        next = applyAction(next, { type: 'SET_STRATEGY', roundIndex, strategy: best });
+      });
+      return next;
+    }
+  }
 }
 
 export function evaluate(state: RetrievalRankState): ScoreResult {

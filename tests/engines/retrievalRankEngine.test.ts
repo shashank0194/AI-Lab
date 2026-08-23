@@ -4,8 +4,10 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type RetrievalRankConfig,
 } from '@/engines/retrievalRankEngine';
+import realGame from '@data/games/world-7-grounding-tools/7-1-retrieval.json';
 import type { CorpusDep, Embedder } from '@/engines/deps';
 import type { EngineRules } from '@/types/game';
 
@@ -348,5 +350,69 @@ describe('retrievalRankEngine — reset and submit', () => {
     let state = initState(config, breakRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('retrievalRankEngine — solve', () => {
+  const rankConfig: RetrievalRankConfig = {
+    mode: 'rank',
+    corpus: 'retrieval-facts',
+    query: RANK_QUERY,
+  };
+  const breakConfig: RetrievalRankConfig = {
+    mode: 'break-retriever',
+    corpus: 'retrieval-facts',
+    targetFactId: 'a',
+    solutionQuery: RANK_QUERY,
+  };
+  const chunkConfig: RetrievalRankConfig = { mode: 'chunking', corpus: 'retrieval-facts' };
+
+  it('orders the passages exactly as their real similarities do', async () => {
+    const prepared = await prepare(rankConfig, { corpus: fakeCorpus, embedder: fakeEmbedder });
+    const solved = solve(initState(rankConfig, rankRules, prepared));
+
+    expect(solved.ordering).toEqual(solved.trueOrder);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('does nothing for the retriever level without an embedded query', async () => {
+    const prepared = await prepare(breakConfig, { corpus: fakeCorpus, embedder: fakeEmbedder });
+    const state = initState(breakConfig, breakRules, prepared);
+    expect(solve(state).submittedVector).toBeNull();
+  });
+
+  it('submits the level’s own query once the canvas has embedded it', async () => {
+    const prepared = await prepare(breakConfig, { corpus: fakeCorpus, embedder: fakeEmbedder });
+    const state = initState(breakConfig, breakRules, prepared);
+    const text = breakConfig.solutionQuery!;
+    const [vector] = await fakeEmbedder.embed([text]);
+
+    const solved = solve(state, { query: { text, vector: vector! } });
+    expect(solved.submittedQuery).toBe(text);
+    expect(solved.submittedVector).toEqual(vector);
+  });
+
+  it('chooses each chunking round’s strategy by measuring both', async () => {
+    const prepared = await prepare(chunkConfig, { corpus: fakeCorpus, embedder: fakeEmbedder });
+    const base = initState(chunkConfig, chunkRules, prepared);
+    const solved = solve(base);
+
+    for (const round of solved.chunkRounds) expect(round.strategy).not.toBeNull();
+    // Never worse than committing to one strategy for every round.
+    for (const strategy of ['paragraph', 'sentence'] as const) {
+      let uniform = base;
+      base.chunkRounds.forEach((_, roundIndex) => {
+        uniform = applyAction(uniform, { type: 'SET_STRATEGY', roundIndex, strategy });
+      });
+      expect(evaluate(solved).value).toBeGreaterThanOrEqual(evaluate(uniform).value);
+    }
+  });
+
+  it('names a solution query for the level that needs one', () => {
+    const game = realGame;
+    const level = game.levels.find((l) => (l.engineConfig as { mode?: string }).mode === 'break-retriever');
+    const config = level!.engineConfig as unknown as RetrievalRankConfig;
+    expect(config.solutionQuery?.length ?? 0).toBeGreaterThan(0);
   });
 });

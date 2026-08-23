@@ -46,7 +46,30 @@
         "The passage about the Burj Khalifa is the only one directly about a tallest building, so it belongs at the top. After that, judge each passage by how close its own subject sits to 'tall building' — a monument with a height (like the Statue of Liberty) should sit closer than a river, a desert, or a planet's rotation.",
         "The real embedder cares about surface topic overlap more than deep reasoning: passages that share vocabulary with the query (heights, structures, landmarks) rank above ones that share none of it. A passage that is about depth rather than height (the Mariana Trench) or has almost no shared vocabulary at all (Venus's rotation) ranks lowest, even though 'tall' and 'deep' are conceptually related.",
         "Checked directly against the real model: the true order is Burj Khalifa (0.718), Statue of Liberty (0.347), Great Wall of China (0.277), Amazon River (0.199), Sahara Desert (0.191), Great Barrier Reef (0.188), Mariana Trench (0.181), Venus (0.098)."
-      ]
+      ],
+      "solution": {
+        "problem": "Eight real passages and one question — 'How tall is the tallest building in the world?' — ranked by cosine similarity between the question's embedding and each passage's. You reproduce that ranking, scored by Spearman correlation, so the shape matters more than any single position.",
+        "steps": [
+          {
+            "title": "Expect one clear winner and a muddle behind it",
+            "body": "Checked directly against the real model: Burj Khalifa scores 0.718 and everything else is below 0.35. The gap between first and second is larger than the gap between second and last. Retrieval is usually like this — one obvious hit and a long tail of weakly related material."
+          },
+          {
+            "title": "Read the tail as topical drift, not relevance",
+            "body": "The real order after Burj is Statue of Liberty (0.347), Great Wall of China (0.277), Amazon River (0.199), Sahara Desert (0.191), Great Barrier Reef (0.188), Mariana Trench, Venus. Statue of Liberty and Great Wall place high because they are famous structures with heights and lengths — nothing to do with answering the question, everything to do with sharing vocabulary."
+          },
+          {
+            "title": "Rank by shared language, not by whether it answers",
+            "body": "That is the mental shift this level is teaching. A retriever has no notion of 'answers the question' — it has a distance. The passages between 0.19 and 0.35 are essentially indistinguishable to it, so their exact order is noise you should not agonise over."
+          },
+          {
+            "title": "Anchor the ends",
+            "body": "Spearman rewards the overall shape. Put Burj first and the genuinely unrelated ones (Venus, Mariana Trench) last, and the middle can be approximate without costing you much."
+          }
+        ],
+        "answer": "Burj Khalifa, Statue of Liberty, Great Wall of China, Amazon River, Sahara Desert, Great Barrier Reef, Mariana Trench, Venus. Autofill sorts by each passage's live similarity to the query, for a correlation of 1.0 and three stars.",
+        "takeaway": "Retrieval quality is decided before the model sees anything. If the right passage does not come back in the top few, no amount of prompting fixes it — which is why RAG systems live or die on their retriever rather than their generator."
+      }
     },
     {
       "id": "7-1-l2",
@@ -57,7 +80,8 @@
       "engineConfig": {
         "mode": "break-retriever",
         "corpus": "retrieval-facts",
-        "targetFactId": "mariana"
+        "targetFactId": "mariana",
+        "solutionQuery": "deepest ocean trench Pacific"
       },
       "passCriteria": {
         "metric": "retrievalMargin",
@@ -74,7 +98,30 @@
         "A vague query about 'deep places' or 'the ocean' in general is competing against a passage about a coral reef and a passage about a river — both also ocean-adjacent. Name the specific thing: what is the Mariana Trench, where is it, what is special about it.",
         "The real embedder rewards vocabulary that overlaps tightly with the passage's own words far more than a topically-nearby paraphrase. A single-word query ('ocean') barely beats the reef passage; a query built from the passage's own likely vocabulary (trench, deepest, Pacific) pulls the target far ahead of everything else.",
         "Checked directly: the single word 'ocean' does not even retrieve the Mariana Trench passage top-1. The query 'deepest ocean trench Pacific' does — margin 0.561 over the next-closest real passage (Great Barrier Reef) — comfortably inside the 3-star band."
-      ]
+      ],
+      "solution": {
+        "problem": "The reverse task: write a query that retrieves one specific passage — the Mariana Trench — by a wide margin. The score is the margin between your query's similarity to that passage and its similarity to the best of the other seven, so a query that merely retrieves it top-1 scores near zero.",
+        "steps": [
+          {
+            "title": "Try the obvious query and watch it fail",
+            "body": "'Ocean' seems like the natural handle for the deepest place in the ocean. Checked directly, the single word 'ocean' does not even retrieve the Mariana Trench passage top-1 — the Great Barrier Reef passage is at least as close, because it is also full of ocean vocabulary. One word is not a query, it is a topic."
+          },
+          {
+            "title": "Add the words that distinguish rather than describe",
+            "body": "What separates Mariana from the reef is not 'ocean' but 'deepest', 'trench' and 'Pacific'. Those are the terms that appear in the target passage and nowhere else in the corpus. A good query is not the one that best describes what you want — it is the one that overlaps most with the target and least with everything else."
+          },
+          {
+            "title": "Check the margin",
+            "body": "'Deepest ocean trench Pacific' retrieves the Mariana passage with a margin of 0.561 over the next-closest real passage, which is a comfortable three stars. The margin, not the raw similarity, is what tells you the retrieval is robust — a high similarity that everything else also has is worth nothing."
+          },
+          {
+            "title": "Notice which direction the effort goes",
+            "body": "Making a retriever find a specific document is a matter of matching its distinctive vocabulary, which is also how retrieval gets attacked. A document stuffed with distinctive-looking terms can be made to surface for queries it has no business answering — the same lever, pulled the other way."
+          }
+        ],
+        "answer": "Query with 'deepest ocean trench Pacific' — margin 0.561 over the next-closest passage, three stars. Autofill embeds exactly that query with the real model and submits it.",
+        "takeaway": "Query formulation is an engineering surface, not a user problem. Query rewriting, HyDE and multi-query retrieval all exist because the words a person naturally uses are rarely the words that separate the right document from the plausible ones."
+      }
     },
     {
       "id": "7-1-l3",
@@ -102,7 +149,30 @@
         "Paragraph-level retrieval always returns the whole document — both of its facts — so at best only half of what you get back is actually relevant to any one query. Sentence-level retrieval can return just the one sentence that matters, if it finds the right one.",
         "Since each document merges two genuinely different topics (a reef and a trench; two tall structures; two long ones), the whole-document vector is a blend of both — real similarity search over the individual sentences finds the exact right one for every query in this set, because a single sentence's vector is not diluted by its neighbour's topic.",
         "Checked directly against the real model, for all 6 queries here: paragraph-level retrieval always finds the right document, but returns 6 sentences for a question with only 3 relevant ones — precision exactly 0.5, every time. Sentence-level retrieval finds the exact right sentence in all 6 cases — precision 1.0. Picking sentence for every query is the only way to clear the 3-star band."
-      ]
+      ],
+      "solution": {
+        "problem": "Six questions, and one decision each: retrieve a whole paragraph, or retrieve individual sentences. The score is retrieval precision — of what you return, how much is actually relevant — averaged across the rounds.",
+        "steps": [
+          {
+            "title": "Understand what precision punishes",
+            "body": "Precision is relevant-returned over total-returned. Returning more material can only hurt it. A paragraph that contains the answer alongside five irrelevant sentences is a correct retrieval with poor precision, and that is exactly the trade-off chunking strategy decides."
+          },
+          {
+            "title": "Measure paragraph-level retrieval",
+            "body": "Checked directly for all six queries: paragraph-level retrieval always finds the right document — it never misses — but returns 6 sentences for a question with only 3 relevant ones. Precision is exactly 0.5 every single time. Reliable, and reliably half-wasted."
+          },
+          {
+            "title": "Measure sentence-level retrieval",
+            "body": "Sentence-level retrieval finds the exact right sentence in all six cases: precision 1.0. On this corpus it is strictly better, and choosing 'sentence' for every round is the only way to clear the three-star band."
+          },
+          {
+            "title": "Know why the answer is not always sentence",
+            "body": "This corpus has self-contained sentences. Real documents often do not: a sentence that says 'it was completed in 2010' is useless without the one before it naming the building. Sentence-level chunking maximises precision and destroys context, which is why production systems use overlapping windows or retrieve a sentence and expand around it."
+          }
+        ],
+        "answer": "Choose sentence-level retrieval for all six rounds — precision 1.0 against paragraph-level's flat 0.5, three stars. Autofill measures both strategies for each round against this device's own embeddings and takes the better one, which here is sentence every time.",
+        "takeaway": "Chunk size is the most consequential and least discussed parameter in a RAG system. Too large and you flood the context with irrelevance; too small and you strip the context that makes a passage mean anything — and the right answer depends on the documents, not on a best practice."
+      }
     }
   ]
 }

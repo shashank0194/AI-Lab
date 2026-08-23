@@ -18,6 +18,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   roundPrecision,
   type ChunkRound,
   type RetrievalFact,
@@ -31,6 +32,7 @@ import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Meter, Panel, Readout, Tag, cx, formatNumber } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import { usePointerDrag } from '../usePointerDrag';
 import { useDragReorder } from '../useDragReorder';
 import type { GameComponentProps } from '../registry';
@@ -61,7 +63,15 @@ export function RetrievalCanvas({ game, level, onScore, onSubmit }: GameComponen
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+        />
+      )}
     </ModelGate>
   );
 }
@@ -69,11 +79,14 @@ export function RetrievalCanvas({ game, level, onScore, onSubmit }: GameComponen
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: RetrievalRankState;
   dispatch: (action: RetrievalRankAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: RetrievalRankState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -89,6 +102,27 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. Breaking the retriever needs a query embedded
+  // before the engine can score it, so the level's own query is embedded here.
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        let solved = state;
+        if (state.mode === 'break-retriever') {
+          const text = state.config.solutionQuery;
+          if (!text) return;
+          const [vector] = await embeddingModel.embed([text]);
+          if (!vector) return;
+          solved = solve(state, { query: { text, vector } });
+        } else {
+          solved = solve(state);
+        }
+        setState(solved);
+        onSubmit(evaluate(solved));
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));
