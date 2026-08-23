@@ -53,7 +53,30 @@
         "This uses the exact same activation as the target neuron, so there's a direct, findable answer rather than an approximate one — move one weight at a time and watch which one straightens out the shape of your curve to match the target's.",
         "Get the general shape right before fine-tuning exact values: which weight controls how strongly the curve responds to the first input, which to the second, and how the bias shifts the whole thing up or down.",
         "w0 = 1.5, w1 = −0.8, bias = 0.4 reproduces the target exactly — those are literally the weights the target curve was generated from."
-      ]
+      ],
+      "solution": {
+        "problem": "One neuron, three numbers: two weights and a bias. A hidden target neuron with the same ReLU has been run over 24 fixed probe points, and you have to reproduce its outputs by matching its settings. The score is 1 minus your RMSE divided by how much the target's own output actually varies, so it is graded against the real spread of the signal rather than an absolute error.",
+        "steps": [
+          {
+            "title": "Know what the three dials each do",
+            "body": "The neuron computes w₀x₀ + w₁x₁ + b and then clamps the result at zero. w₀ and w₁ set which direction in the input space the neuron responds to and how strongly; b shifts the whole response up or down, deciding how much input is needed before the unit fires at all."
+          },
+          {
+            "title": "Match the direction first",
+            "body": "The target's weights are (1.5, −0.8): it responds positively to the first input and negatively, about half as strongly, to the second. Getting the ratio and signs right is most of the score, because that is what determines the shape of the output across the probe set."
+          },
+          {
+            "title": "Do not treat the bias as a detail",
+            "body": "With the weights exactly right at (1.5, −0.8) but the bias left at 0 instead of 0.4, the score is 0.749 — a fail, since the pass mark is 0.85. That single number moves every output by the same amount and moves which probes clear the ReLU threshold at all. The bias is a full third of this neuron, not a correction to it."
+          },
+          {
+            "title": "Read the score's denominator",
+            "body": "The metric divides your error by the target's own standard deviation (1.17 here), so 'close' means close relative to how much the target actually moves. A neuron whose output barely varies would be trivially easy to match on an absolute scale, and this scaling is what stops that being worth anything."
+          }
+        ],
+        "answer": "w₀ = 1.5, w₁ = −0.8, bias = 0.4 — an exact match, RMSE 0 and three stars. Autofill sets exactly those, read from the target neuron the level defines.",
+        "takeaway": "This is the entire computational unit that everything else in the course is built from. A transformer with billions of parameters is this arithmetic, repeated — which is worth having in your hands once before the abstractions stack up."
+      }
     },
     {
       "id": "3-1-l2",
@@ -89,7 +112,30 @@
         "Check the output range first: sigmoid stays between 0 and 1, tanh stays between −1 and 1, and ReLU, leaky ReLU and GELU can all go arbitrarily positive. That alone eliminates two or three candidates immediately.",
         "Among the unbounded ones: plain ReLU is exactly flat at zero for every negative input, leaky ReLU has a small but nonzero negative slope instead of flat, and GELU dips slightly below zero just before the origin before curving up — it's the only one of the three that isn't monotonic near zero.",
         "Check in order: stays in [0,1] → sigmoid. Stays in [−1,1] → tanh. Flat at exactly zero for negatives → ReLU. Small negative slope instead of flat → leaky ReLU. Dips slightly below zero near the origin before rising → GELU."
-      ]
+      ],
+      "solution": {
+        "problem": "Five traces, each produced by really running one neuron with one activation function over 40 probe points. The weights and bias are the same every time; only the non-linearity changes. You name the activation behind each trace, and the score is how many you get right out of five.",
+        "steps": [
+          {
+            "title": "Learn the shapes by what they do at the extremes",
+            "body": "ReLU is exactly zero for every negative pre-activation and a straight line above it — the give-away is a flat run of identical zeros. Leaky ReLU is the same but the negative side has a small non-zero slope. Sigmoid saturates between 0 and 1 and never goes negative. Tanh saturates between −1 and 1, so it does. GELU looks like ReLU but curves smoothly through zero, dipping slightly negative just below it."
+          },
+          {
+            "title": "Sort by two questions",
+            "body": "First: are there negative outputs? If not, it is ReLU or sigmoid. Second: is there a hard flat zero region, or a smooth curve? A flat zero says ReLU; a floor that creeps towards a limit says sigmoid. Among the ones that go negative, a straight small slope is leaky ReLU, a curve bounded near −1 is tanh, and a shallow dip that recovers is GELU."
+          },
+          {
+            "title": "Check what this level actually generated",
+            "body": "The five rounds are drawn from the candidate list by a seeded generator, and on this seed they come out as tanh, tanh, sigmoid, sigmoid, tanh — only two distinct activations across five rounds, with no ReLU, leaky ReLU or GELU appearing at all. Once you have identified one trace confidently, the others are worth comparing against it directly rather than assuming variety."
+          },
+          {
+            "title": "Tell the two apart carefully",
+            "body": "Sigmoid and tanh are the same S-curve, just scaled and shifted: tanh(x) = 2·sigmoid(2x) − 1. What separates them on screen is the range. If the trace's lowest values sit near 0, it is sigmoid; if they go clearly below zero towards −1, it is tanh. Everything else about their shape is identical."
+          }
+        ],
+        "answer": "In order: tanh, tanh, sigmoid, sigmoid, tanh. Autofill answers each round with the activation that really produced its trace, for 5/5 and three stars.",
+        "takeaway": "The activation function is the only non-linear part of a neuron, and its shape decides what the unit can express and how gradients flow back through it. The choice between these is not aesthetic: sigmoid saturating at both ends is precisely why deep networks were hard to train before ReLU."
+      }
     },
     {
       "id": "3-1-l3",
@@ -124,7 +170,30 @@
         "Nothing here is wrong about the weights' direction — the neuron's sum is just permanently negative because of how negative the bias is. Try adjusting the bias before touching the weights at all.",
         "The probes span roughly ±2 on each input, so the weighted part of the sum only ever swings a modest amount either way — a bias of −2.9 overwhelms that completely, so every probe reads negative. Bring the bias up toward positive territory.",
         "Raise the bias alone, leaving the weights untouched — bias = 0 already revives about 56% of probes (past two stars), and bias ≈ 1 wakes every single one of them (three stars)."
-      ]
+      ],
+      "solution": {
+        "problem": "A ReLU unit with weights (0.35, 0.30) and a bias of −2.9. Across all 32 probe points its pre-activation never once clears zero, so its output is always zero and its gradient is always zero — it is dead, and no amount of training would ever revive it. The score is the fraction of probes it fires on, and swapping the activation is deliberately disabled.",
+        "steps": [
+          {
+            "title": "Diagnose it on the pre-activation, not the output",
+            "body": "The output being zero everywhere is the symptom. The cause is that w·x + b < 0 for every probe: the probes span roughly [−2, 2] on each input, the weights are small, so the weighted sum reaches at most about ±1.3 — and then the bias subtracts 2.9. The unit is not miscalibrated, it is switched off."
+          },
+          {
+            "title": "See why this is fatal during training",
+            "body": "ReLU's derivative is zero for negative inputs. A unit that is negative on every example receives exactly zero gradient from every example, so gradient descent never changes its weights. It stays dead for the rest of training. This is the well-known dying-ReLU problem, and it is usually caused by exactly this: a large negative bias, often arrived at by too high a learning rate."
+          },
+          {
+            "title": "Nudge the bias and watch it come back",
+            "body": "Leave the weights alone and sweep the bias: at −2.9 and −1.0 the unit fires on 0% of probes, at −0.5 on 18.8%, at 0 on 56.3%, at +0.5 on 93.8%, and at +1.0 on all of them. The pass mark is 35%, two stars is 50% and three is 62% — so a bias anywhere from about 0 upwards clears it."
+          },
+          {
+            "title": "Do not just crank it to the top",
+            "body": "Bias +3 makes the unit fire on 100% of probes and scores maximum on the metric, but a ReLU that never clamps anything is a linear unit — it has stopped being a non-linearity at all. The useful repair is the smallest one that gets it firing on a healthy fraction, which is why the fill searches for the nearest working setting rather than the loudest one."
+          }
+        ],
+        "answer": "Raise the bias from −2.9 to about +0.5 with the weights unchanged: 93.8% of probes active, three stars. Autofill instead keeps the smallest total change that still reaches the three-star band — weights (0.25, 0) with the bias at 0, firing on 62.5% — to make the point that this is a nudge rather than a rebuild.",
+        "takeaway": "A dead ReLU is a bias problem with a gradient consequence, and it is one of the few failure modes you can diagnose by looking at one unit in isolation. It is also the reason leaky ReLU and GELU exist: both keep a non-zero gradient on the negative side so a unit can always find its way back."
+      }
     }
   ]
 }

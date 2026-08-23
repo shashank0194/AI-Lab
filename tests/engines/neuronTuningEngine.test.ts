@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   currentOutputs,
   neuronOutput,
   preActivation,
@@ -196,5 +197,44 @@ describe('neuronTuningEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('neuronTuningEngine — solve', () => {
+  it('matches the target neuron exactly', () => {
+    const config = configFor(0);
+    const solved = solve(initState(config, rulesFor(0)));
+    const result = evaluate(solved);
+
+    expect(solved.weights).toEqual(config.targetWeights);
+    expect(solved.bias).toBe(config.targetBias);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+  });
+
+  it('names the activation that really produced each trace', () => {
+    const solved = solve(initState(configFor(1), rulesFor(1)));
+    for (const round of solved.rounds) expect(round.answer).toBe(round.trueActivation);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('revives the dead neuron without cranking the bias to its limit', () => {
+    const config = configFor(2);
+    const base = initState(config, rulesFor(2));
+    const solved = solve(base);
+    const result = evaluate(solved);
+
+    // It starts completely dead: no probe clears zero.
+    expect(evaluate(base).value).toBe(0);
+    expect(result.stars).toBe(3);
+    // A unit that fires on every input has stopped gating anything, which is
+    // the opposite of the lesson — the fill keeps the smallest change that works.
+    expect(result.value).toBeLessThan(1);
+    expect(solved.bias).toBeLessThan(config.biasRange[1]);
+  });
+
+  it('cannot escape the dead neuron by swapping the activation', () => {
+    const solved = solve(initState(configFor(2), rulesFor(2)));
+    expect(solved.activation).toBe('relu');
   });
 });

@@ -18,6 +18,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   currentOutputs,
   preActivation,
   type NeuronTuningAction,
@@ -27,6 +28,7 @@ import {
 import type { Activation } from '@/models/tinyNetTrainer';
 import { Button, Panel, Readout, Slider, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules, ScoreResult } from '@/types/game';
 
@@ -61,17 +63,28 @@ export function NeuronCanvas({ level, onScore, onSubmit }: GameComponentProps) {
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: NeuronTuningState;
   dispatch: (action: NeuronTuningAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: NeuronTuningState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -87,6 +100,17 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the target neuron's own settings, the real
+  // activation behind each trace, or the smallest nudge that revives the unit.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

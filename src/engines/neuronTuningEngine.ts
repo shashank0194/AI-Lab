@@ -175,6 +175,111 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The settings this level's own arithmetic says are right.
+ *
+ * Two of the three modes have an exact answer sitting in state — the target
+ * neuron's own weights, and each trace's real activation. The dead neuron does
+ * not: any number of settings revive it, and the interesting one is the
+ * smallest change that does, because the lesson is that a dead ReLU is a bias
+ * problem rather than a broken unit. So among the settings that reach the
+ * level's top band, the fill keeps the one nearest the neuron it started with.
+ */
+export function solve(state: NeuronTuningState): NeuronTuningState {
+  switch (state.mode) {
+    case 'match-output': {
+      const targetWeights = state.config.targetWeights ?? state.weights;
+      const targetBias = state.config.targetBias ?? state.bias;
+      let next = state;
+      targetWeights.forEach((value, index) => {
+        next = applyAction(next, { type: 'SET_WEIGHT', index, value });
+      });
+      return applyAction(next, { type: 'SET_BIAS', value: targetBias });
+    }
+
+    case 'identify-activation': {
+      let next = state;
+      state.rounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'ANSWER_ACTIVATION',
+          roundIndex,
+          value: round.trueActivation,
+        });
+      });
+      return next;
+    }
+
+    case 'revive-dead-neuron':
+      return reviveNeuron(state);
+  }
+}
+
+/**
+ * The smallest nudge that gets the unit firing again.
+ *
+ * Sweeps the level's own slider ranges, then, among the settings that clear its
+ * top star band, keeps whichever sits closest to the original weights and bias.
+ * Cranking the bias to its maximum also scores well and teaches the opposite of
+ * the lesson: a unit that fires on every input is not a working neuron either.
+ */
+function reviveNeuron(state: NeuronTuningState): NeuronTuningState {
+  const [weightMin, weightMax] = state.config.weightRange;
+  const [biasMin, biasMax] = state.config.biasRange;
+  const steps = 24;
+  const axis = (min: number, max: number) =>
+    Array.from({ length: steps + 1 }, (_, i) => Math.round((min + ((max - min) * i) / steps) * 100) / 100);
+
+  const topBand = Math.max(...state.rules.starsRules.map((rule) => rule.threshold));
+  const origin = { weights: [...state.config.weights], bias: state.config.bias };
+  const distance = (weights: number[], bias: number) =>
+    Math.hypot(...weights.map((w, i) => w - (origin.weights[i] ?? 0)), bias - origin.bias);
+
+  let best: { weights: number[]; bias: number } | null = null;
+  let bestScore = -1;
+  let bestDistance = Infinity;
+
+  const weightAxes = state.weights.map(() => axis(weightMin, weightMax));
+  const biases = axis(biasMin, biasMax);
+
+  const walk = (chosen: number[]) => {
+    if (chosen.length === state.weights.length) {
+      for (const bias of biases) {
+        const active = state.probes.filter((p) => preActivation(chosen, bias, p) > 0).length;
+        const score = active / Math.max(1, state.probes.length);
+        const reachesBand = score >= topBand;
+        const bestReachesBand = bestScore >= topBand;
+        const nearer = distance(chosen, bias) < bestDistance;
+
+        const wins = bestReachesBand
+          ? reachesBand && nearer
+          : reachesBand || score > bestScore;
+        if (wins) {
+          best = { weights: [...chosen], bias };
+          bestScore = score;
+          bestDistance = distance(chosen, bias);
+        }
+      }
+      return;
+    }
+    for (const value of weightAxes[chosen.length]!) walk([...chosen, value]);
+  };
+  walk([]);
+
+  const winner: { weights: number[]; bias: number } = best ?? {
+    weights: [...state.weights],
+    bias: state.bias,
+  };
+  let next = state;
+  winner.weights.forEach((value, index) => {
+    next = applyAction(next, { type: 'SET_WEIGHT', index, value });
+  });
+  return applyAction(next, { type: 'SET_BIAS', value: winner.bias });
+}
+
 /** Current outputs across the probe set — the visualisation reads this. */
 export function currentOutputs(state: NeuronTuningState): number[] {
   return state.probes.map((p) => neuronOutput(state.weights, state.bias, state.activation, p));
