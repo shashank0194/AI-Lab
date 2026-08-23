@@ -350,7 +350,7 @@ export function solve(state: MultiHeadDetectiveState): MultiHeadDetectiveState {
       const pair = state.dependency ?? state.config.solutionDependency;
       if (!pair) return state;
 
-      let next = state.dependency
+      const next = state.dependency
         ? state
         : applyAction(state, {
             type: 'SET_DEPENDENCY',
