@@ -54,7 +54,30 @@
         "One straight line can never separate a ring from what's inside it — you need at least one hidden layer before training will make any real progress.",
         "The default architecture (one hidden layer of 4 units) already has enough capacity for two concentric circles; a higher learning rate just gets you there in fewer epochs.",
         "Leave the architecture at its default (2–4–1), set η ≈ 0.3, and train for around 150 epochs — that reaches 100% validation accuracy."
-      ]
+      ],
+      "solution": {
+        "problem": "Two concentric rings of points, which no straight line can separate — the same wall the perceptron hit in World 2, now with a hidden layer available. You choose the architecture, the learning rate and how long to train, and the score is accuracy on the 30% validation split the network never trains on.",
+        "steps": [
+          {
+            "title": "Understand what the hidden layer buys",
+            "body": "The output unit is still a linear classifier; what changed is what it classifies. Each hidden unit applies its own weights and a tanh, bending the input space, and the output sees those bent coordinates instead of the raw ones. In a space where the inner ring has been folded away from the outer one, a straight boundary is enough."
+          },
+          {
+            "title": "Start with the shipped architecture",
+            "body": "2–4–1 is four hidden units and 17 parameters in total, which is ample for two rings. Bigger is not better here — it is just slower and more prone to memorising the noise, which the validation split would immediately expose."
+          },
+          {
+            "title": "Train long enough to finish the job",
+            "body": "Run the full 400-epoch budget at the shipped learning rate of 0.1 and the network reaches 100% validation accuracy — with a training accuracy of 98.5%, which is slightly lower. That is the healthy direction for those two numbers to differ in, and it happens because the noise sits in the training half."
+          },
+          {
+            "title": "Watch the boundary rather than the number",
+            "body": "The interesting part is the shape the decision boundary takes as it trains: it starts as a nearly straight line and closes into a ring. Nobody told the network to draw a circle. Four tanh units, each contributing one soft fold, add up to a closed curve because that is what fits the data."
+          }
+        ],
+        "answer": "Leave the architecture at 2–4–1 and the learning rate at 0.1, then train the full 400 epochs — 100% validation accuracy and three stars. Autofill runs exactly that and stops as soon as it clears the three-star band.",
+        "takeaway": "One hidden layer is the difference between a model that cannot represent this problem and one that solves it perfectly. That is the universal approximation result in practice: depth and width buy expressiveness, and the failure in World 2 was never about training harder."
+      }
     },
     {
       "id": "3-2-l2",
@@ -92,7 +115,30 @@
         "This is scored per parameter, so before adding units, ask whether XOR actually needs two hidden layers at all — it doesn't need much.",
         "A single hidden layer is enough to solve XOR; the real question is how few units in that one layer still learn it reliably. Fewer parameters at the same accuracy scores strictly better here.",
         "One hidden layer of 3 or 4 units (architecture 2–3–1 or 2–4–1, about 13–17 parameters) trains to roughly 91% accuracy and clears three stars — beating the default two-hidden-layer setup on efficiency even though raw accuracy is similar."
-      ]
+      ],
+      "solution": {
+        "problem": "XOR again, and this time the network can solve it — so the level scores something else. Efficiency is accuracy scaled by how far you overspend a 25-parameter budget: stay inside and it costs nothing, go over and the score is divided down in proportion. The question is not 'can you fit this' but 'how small can the thing that fits it be'.",
+        "steps": [
+          {
+            "title": "Establish what the shipped network does",
+            "body": "The default 2–2–1 is 9 parameters and trains to 87.9% accuracy — an efficiency of 0.879, which is two stars and just under the 0.88 three-star line. Two hidden units is genuinely the theoretical minimum for XOR, and on noisy samples it is a little too tight to fit comfortably."
+          },
+          {
+            "title": "Add one unit, not one layer",
+            "body": "2–3–1 is 13 parameters and trains to 89.4% — efficiency 0.894, three stars, still comfortably inside the budget. 2–4–1 is 17 parameters at 90.9%, efficiency 0.909, also three stars. Both are better answers than the default, and both are smaller than the budget allows."
+          },
+          {
+            "title": "See what overspending really costs",
+            "body": "2–8–8–1 is 105 parameters and the most accurate network on the board at 97.0% — and its efficiency score is 0.231, zero stars. The budget divides the score by 105/25, so a four-fold overspend throws away three-quarters of a genuinely better model. The metric is deliberately harsher than accuracy alone."
+          },
+          {
+            "title": "Read the trade-off honestly",
+            "body": "More capacity really does fit this data better; it is just not worth what it costs here. That is the actual engineering judgement the level is asking for, and it is the same one that decides whether a 70B model or a well-tuned 7B ships."
+          }
+        ],
+        "answer": "One hidden layer of 3 units (2–3–1, 13 parameters) at the shipped learning rate — 89.4% accuracy, efficiency 0.894, three stars. 2–4–1 at 17 parameters scores slightly higher still. Autofill trains the shipped shape first, then works through smaller and larger single-layer options, and keeps 2–3–1.",
+        "takeaway": "Parameter count is a real cost — memory, latency, energy — and the best model for a job is rarely the most accurate one available. Efficiency framing is why quantisation and distillation exist, which is what World 8 opens with."
+      }
     },
     {
       "id": "3-2-l3",
@@ -131,7 +177,30 @@
         "Try the default architecture and just train for a while first — watch whether accuracy is actually climbing or stuck. If it's stuck near 50%, the problem probably isn't the architecture or the epoch budget.",
         "tanh saturates on a network this deep for this dataset — the gradient signal struggles to get back through two hidden tanh layers, so it stalls around 53% accuracy no matter how long you train or what learning rate you pick. Switch the activation instead of fighting it with more epochs.",
         "Keep the default architecture (two hidden layers, 8 units each) but switch the activation to ReLU or leaky ReLU, use η ≈ 0.08, and train the full 900 epochs — that combination reaches essentially 100% accuracy, comfortably past three stars."
-      ]
+      ],
+      "solution": {
+        "problem": "Two interleaved spirals: the hardest boundary in this course, and the level where the activation function stops being a detail. The architecture is already generous — two hidden layers of eight units, 105 parameters — and the level hands you a choice between tanh, ReLU and leaky ReLU.",
+        "steps": [
+          {
+            "title": "Try the shipped settings and watch them fail",
+            "body": "With tanh and the full 900-epoch budget, the network reaches 53% validation accuracy — barely better than guessing, and nowhere near the 88% pass mark. This is not undertraining and it is not the architecture: the training accuracy is 54% too, so the network has not even fitted the data it can see."
+          },
+          {
+            "title": "Understand why tanh struggles here",
+            "body": "tanh saturates at both ends: once a unit's pre-activation is large in either direction, its gradient is nearly zero, and with two layers those small factors multiply. A spiral needs many tight folds, which means large weights, which is exactly where tanh's gradient disappears. The signal reaching the first layer is too weak to organise it."
+          },
+          {
+            "title": "Switch the non-linearity and rerun",
+            "body": "The same architecture, the same learning rate of 0.08 and the same 900 epochs, with ReLU instead: 99% validation accuracy. With leaky ReLU: 100%. ReLU's gradient is exactly 1 for every active unit, so it does not shrink as it passes back through layers — the network can keep organising itself all the way down."
+          },
+          {
+            "title": "Look at the hidden representation",
+            "body": "This level shows what each hidden layer does to the input. Watch the spirals get pulled apart into something a straight line could split — that unwinding is the entire job of the hidden layers, and the final unit is doing nothing more sophisticated than the perceptron from World 2 on a space that has already been rearranged for it."
+          }
+        ],
+        "answer": "Keep the 2–8–8–1 architecture and the 0.08 learning rate, switch the activation to ReLU (99%) or leaky ReLU (100%), and train the full 900 epochs — three stars. Autofill tries the shipped tanh first, then the alternatives at the same rate, and keeps ReLU.",
+        "takeaway": "Vanishing gradients are why deep networks stalled for two decades, and ReLU is most of why they stopped stalling. A change with no extra parameters, no extra compute and no clever tuning took this level from 53% to 99% — the architecture was never the problem."
+      }
     }
   ]
 }

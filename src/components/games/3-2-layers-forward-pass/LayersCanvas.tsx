@@ -18,6 +18,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   boundaryGrid,
   hiddenRepresentation,
   type NetworkBoundaryAction,
@@ -28,6 +29,7 @@ import type { Activation } from '@/models/tinyNetTrainer';
 import type { ToyPoint } from '@/engines/toyDatasets';
 import { Button, Meter, Panel, Readout, Slider, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -67,17 +69,28 @@ export function LayersCanvas({ level, onScore, onSubmit }: GameComponentProps) {
     );
   }
 
-  return <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />;
+  return (
+    <Board
+      state={state}
+      dispatch={dispatch}
+      setState={setState}
+      onScore={onScore}
+      onSubmit={onSubmit}
+    />
+  );
 }
 
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: NetworkBoundaryState;
   dispatch: (action: NetworkBoundaryAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: NetworkBoundaryState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -104,6 +117,19 @@ function Board({
     dispatch({ type: 'RESET' });
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. Every candidate it weighs is a real training run
+  // on this level's own data, so the animated training loop is stopped first —
+  // otherwise the next scheduled tick would train the filled-in network on
+  // past its own answer.
+  useSolutionFill(
+    useCallback(() => {
+      setIsTraining(false);
+      const solved = solve(state);
+      setState(solved);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   const budget = state.config.parameterBudget;
   const params = state.net.parameterCount;

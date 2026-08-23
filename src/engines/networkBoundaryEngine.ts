@@ -190,6 +190,100 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * A configuration that really trains to this level's target, found by training.
+ *
+ * Nothing here is asserted from theory: each candidate is a full run of the
+ * real `TinyNet` on the level's own data for its own epoch budget, scored by
+ * its own metric. The search is ordered rather than exhaustive — the level's
+ * shipped architecture first, then its other activations, then a handful of
+ * alternative shapes — and stops the moment a candidate clears the three-star
+ * band, because every extra candidate is a real training run the player is
+ * waiting on.
+ */
+export function solve(state: NetworkBoundaryState): NetworkBoundaryState {
+  const topBand = Math.max(...state.rules.starsRules.map((rule) => rule.threshold));
+  const comparator = state.rules.passCriteria.comparator;
+  const better = (candidate: number, incumbent: number) =>
+    comparator === 'gte' ? candidate > incumbent : candidate < incumbent;
+  const clears = (value: number) => (comparator === 'gte' ? value >= topBand : value <= topBand);
+
+  let best: NetworkBoundaryState | null = null;
+  let bestValue = 0;
+
+  for (const candidate of candidateSettings(state)) {
+    let run = applyAction(state, { type: 'RESET' });
+    run = applyAction(run, { type: 'SET_HIDDEN_LAYERS', units: candidate.hidden });
+    run = applyAction(run, { type: 'SET_ACTIVATION', value: candidate.activation });
+    run = applyAction(run, { type: 'SET_LEARNING_RATE', value: candidate.learningRate });
+    run = applyAction(run, { type: 'TRAIN', epochs: state.config.maxEpochs });
+
+    const value = evaluate(run).value;
+    if (!Number.isFinite(value)) continue;
+    if (best === null || better(value, bestValue)) {
+      best = run;
+      bestValue = value;
+    }
+    if (clears(bestValue)) break;
+  }
+
+  return best ?? state;
+}
+
+interface BoundaryCandidate {
+  hidden: number[];
+  activation: Activation;
+  learningRate: number;
+}
+
+/** Ordered by how likely each is to be the answer, cheapest-to-justify first. */
+function candidateSettings(state: NetworkBoundaryState): BoundaryCandidate[] {
+  const limits = state.config.architectureRange;
+  const defaultHidden = state.config.architecture.slice(1, -1);
+  const maxUnits = limits?.maxUnits ?? Math.max(...defaultHidden, 1);
+  const maxHidden = limits?.maxHidden ?? defaultHidden.length;
+
+  const shapes: number[][] = [defaultHidden];
+  for (const shape of [[3], [4], [6], [8], [8, 8], [6, 6]]) {
+    if (shape.length > maxHidden) continue;
+    if (shape.some((units) => units > maxUnits)) continue;
+    if (shapes.some((existing) => existing.join(',') === shape.join(','))) continue;
+    shapes.push(shape);
+  }
+
+  const activations: Activation[] = [state.config.activation];
+  for (const option of state.config.activationOptions ?? []) {
+    if (!activations.includes(option)) activations.push(option);
+  }
+
+  const [rateMin, rateMax] = state.config.learningRateRange ?? [
+    state.config.learningRate,
+    state.config.learningRate,
+  ];
+  const rates: number[] = [];
+  for (const rate of [state.config.learningRate, 0.1, 0.3, 0.05]) {
+    if (rate >= rateMin && rate <= rateMax && !rates.includes(rate)) rates.push(rate);
+  }
+
+  // Activation varies fastest. On the spiral level tanh cannot pass at any
+  // learning rate, so trying every rate before trying ReLU spends four real
+  // training runs — and the whole search — on a setting that was never going
+  // to work.
+  const candidates: BoundaryCandidate[] = [];
+  for (const hidden of shapes) {
+    for (const learningRate of rates) {
+      for (const activation of activations) {
+        candidates.push({ hidden, activation, learningRate });
+      }
+    }
+  }
+  return candidates;
+}
+
 /** Samples the real decision surface on a grid, for the boundary plot. */
 export function boundaryGrid(state: NetworkBoundaryState, resolution = 40): number[][] {
   const grid: number[][] = [];

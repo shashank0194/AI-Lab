@@ -3,6 +3,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   boundaryGrid,
   hiddenRepresentation,
   type NetworkBoundaryConfig,
@@ -184,5 +185,46 @@ describe('networkBoundaryEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('networkBoundaryEngine — solve', () => {
+  it('trains the circles level to a clean boundary', () => {
+    const solved = solve(initState(configFor(0), rulesFor(0)));
+    const result = evaluate(solved);
+
+    expect(result.value).toBeGreaterThanOrEqual(0.98);
+    expect(result.stars).toBe(3);
+    expect(solved.epochsTrained).toBeGreaterThan(0);
+  });
+
+  it('wins the efficiency level by shrinking the network, not growing it', () => {
+    const config = configFor(1);
+    const base = initState(config, rulesFor(1));
+    const solved = solve(base);
+    const result = evaluate(solved);
+
+    expect(result.stars).toBe(3);
+    expect(result.breakdown.parameters).toBeLessThanOrEqual(config.parameterBudget!);
+
+    // The tempting move — a much bigger network — really is more accurate and
+    // really does score worse, which is the whole point of the budget.
+    let big = applyAction(base, { type: 'SET_HIDDEN_LAYERS', units: [8, 8] });
+    big = applyAction(big, { type: 'TRAIN', epochs: config.maxEpochs });
+    expect(evaluate(big).breakdown.accuracy).toBeGreaterThan(result.breakdown.accuracy);
+    expect(evaluate(big).value).toBeLessThan(result.value);
+  });
+
+  it('switches the spiral level off tanh, which cannot pass at any rate', () => {
+    const config = configFor(2);
+    const base = initState(config, rulesFor(2));
+
+    let tanh = applyAction(base, { type: 'SET_ACTIVATION', value: 'tanh' });
+    tanh = applyAction(tanh, { type: 'TRAIN', epochs: config.maxEpochs });
+    expect(evaluate(tanh).passed).toBe(false);
+
+    const solved = solve(base);
+    expect(solved.activation).not.toBe('tanh');
+    expect(evaluate(solved).stars).toBe(3);
   });
 });
