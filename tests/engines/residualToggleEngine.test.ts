@@ -4,6 +4,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   computeTrace,
   type ResidualToggleConfig,
 } from '@/engines/residualToggleEngine';
@@ -296,5 +297,41 @@ describe('residualToggleEngine — level config coverage', () => {
       expect(result.metric).toBe(level.passCriteria.metric);
       expect(Number.isFinite(result.value)).toBe(true);
     }
+  });
+});
+
+describe('residualToggleEngine — solve', () => {
+  it('answers each trace round with the norm really measured at that layer', async () => {
+    const config = configFor(0);
+    const prepared = await prepare(config, { hiddenStates: fakeHiddenStates });
+    const solved = solve(initState(config, rulesFor(0), prepared));
+
+    for (const round of solved.rounds) expect(round.estimate).toBe(round.trueValue);
+    expect(evaluate(solved).value).toBe(0);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('turns the plumbing back on to stabilise the stack', async () => {
+    const config = configFor(1);
+    const prepared = await prepare(config, { hiddenStates: fakeHiddenStates });
+    const base = initState(config, rulesFor(1), prepared);
+    const solved = solve(base);
+
+    expect(base.residual).toBe(false);
+    expect(base.layerNorm).toBe(false);
+    expect(evaluate(base).value).toBeLessThan(evaluate(solved).value);
+    expect(solved.layerNorm).toBe(true);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('finds the small epsilon a linear sweep of the range would step over', async () => {
+    const config = configFor(2);
+    const prepared = await prepare(config, { hiddenStates: fakeHiddenStates });
+    const base = initState(config, rulesFor(2), prepared);
+    const solved = solve(base);
+
+    expect(solved.normEpsilon).toBeLessThan(base.normEpsilon / 100);
+    expect(evaluate(solved).value).toBeLessThan(evaluate(base).value);
+    expect(evaluate(solved).stars).toBe(3);
   });
 });

@@ -49,7 +49,30 @@
         "This trace has both the residual path and layer norm on — the same combination every real trained transformer ships with. Think about what layer norm's job actually is before guessing how much the numbers move.",
         "Layer norm rescales every token's activations to a consistent statistic at every single layer, so with it on the trace should barely move across depth at all — not grow, not shrink.",
         "For this sentence, the measured L2 norm sits at essentially 19.6 at every one of the 7 layers (the embedding output included) — that's sqrt(384), the model's hidden size, which is exactly what a properly layer-normalised representation should measure. Guess about 19.6 for every round."
-      ]
+      ],
+      "solution": {
+        "problem": "Seven layers of a real transformer, and the L2 norm of the hidden state read out at each one. You estimate three of those norms, scored on error relative to the trace's own scale — so this is about knowing what a healthy activation scale looks like, not about guessing a raw magnitude.",
+        "steps": [
+          {
+            "title": "Predict the shape before the number",
+            "body": "Ask what should happen to the size of a representation as it passes through seven layers. Each layer adds its attention and feed-forward outputs to what came in. Without normalisation the magnitude would compound; with it, every layer's output is rescaled, so the trace should be flat."
+          },
+          {
+            "title": "Read the actual measurement",
+            "body": "Measured on this sentence, the norm sits at essentially 19.6 at every one of the seven layers, the embedding output included. Not roughly flat — flat, to the precision the readout shows."
+          },
+          {
+            "title": "Recognise where 19.6 comes from",
+            "body": "It is sqrt(384), and 384 is this model's hidden size. Layer normalisation rescales each vector to zero mean and unit variance per component, and a 384-dimensional vector whose components have unit variance has an L2 norm of sqrt(384) = 19.60. So the number is not an empirical curiosity — it is what a correctly layer-normalised representation must measure."
+          },
+          {
+            "title": "Answer all three rounds with the same value",
+            "body": "Because the trace is flat, 19.6 is the answer for every round regardless of which layers you were asked about. The error is measured relative to the trace's mean, so being within a few tenths is comfortably three stars."
+          }
+        ],
+        "answer": "About 19.6 for every round — sqrt(384), the hidden size. Autofill enters each round's exact measured norm, for an error of 0 and three stars.",
+        "takeaway": "A flat norm trace is the signature of a healthy normalised stack, and it is one of the first things to check when a deep model will not train. If those numbers grow or shrink with depth, the plumbing is wrong — which is exactly what the next level lets you break on purpose."
+      }
     },
     {
       "id": "5-4-l2",
@@ -81,7 +104,30 @@
         "Start by looking at the number with both mechanisms off — it's as unstable as this stack gets. Then flip them on one at a time and watch which one actually pulls it into a tight band.",
         "Residual alone (layer norm still off) helps, but doesn't fully fix it — the activation magnitude can still swing across layers even when each block's input carries forward. Layer norm is what forces every layer's magnitude back to the same statistic, on its own or combined with the residual path.",
         "With both off, only 3 of 7 layers land inside the stable band (0.43 — well under the pass mark). Residual alone reaches 6 of 7 (0.857, 2 stars). Turning layer norm on — with or without the residual path — puts all 7 layers in band for a perfect 1.0."
-      ]
+      ],
+      "solution": {
+        "problem": "The same stack with the residual connections and layer normalisation switched off. The score is how many of the seven layers keep their norm within 15% of the stack's own mean — a direct measure of whether the scale is running away with depth.",
+        "steps": [
+          {
+            "title": "Measure the damage first",
+            "body": "With both switched off, only 3 of the 7 layers land inside the stable band: a score of 0.43, well under the 0.7 pass mark. The representation's magnitude is drifting layer over layer, which is what makes deep stacks untrainable — the same compounding problem as the vanishing gradient, in the forward direction."
+          },
+          {
+            "title": "Turn the residual path back on and remeasure",
+            "body": "Residual alone gets 6 of 7 layers in band, a score of 0.857 and two stars. That is a real improvement from one change: adding the input back to the output means each layer only has to compute a correction, so the magnitude carried forward is anchored by what came in."
+          },
+          {
+            "title": "Turn layer norm on and watch it finish the job",
+            "body": "Layer norm on — with or without the residual path — puts all 7 layers in band for a perfect 1.0. It rescales explicitly, so drift cannot accumulate at all. Both mechanisms address the same failure, and normalisation is the more forceful of the two."
+          },
+          {
+            "title": "Do not read that as residuals being unnecessary",
+            "body": "This level measures scale stability, and layer norm dominates that measurement. Residual connections earn their place for a different reason — they give gradients a direct path back through the stack, which is chapter 3.3's problem rather than this one. A metric that only sees one benefit is not evidence against the other."
+          }
+        ],
+        "answer": "Switch layer normalisation on (leaving residual on as well, as a real transformer would) — all 7 layers in band, 1.0 and three stars. Autofill searches every combination of the switches and sliders and keeps the best.",
+        "takeaway": "Residual connections and layer normalisation are the two pieces of plumbing that make depth possible, and neither is optional in practice. Being able to switch them off and watch a stack destabilise is the fastest way to stop thinking of them as boilerplate."
+      }
     },
     {
       "id": "5-4-l3",
@@ -118,7 +164,30 @@
         "The starting normalisation epsilon is much larger than any real transformer would use — that's exactly what's driving the drift up. Try dragging it down, a couple of orders of magnitude at a time.",
         "Don't chase a lower number by dragging the residual scale toward zero. Collapsing the representation to near-nothing is measured and penalised separately from drift, and that penalty is far larger than any drift you'd save.",
         "On the shipped sentence, the starting epsilon of 2 gives drift ≈ 0.097 — already failing. Epsilon 0.01 brings it to ≈ 0.006 (2 stars). Epsilon 0.00001, a realistic value for a real transformer, brings it to ≈ 0.000007 — a clean 3 stars. Leave the residual scale at 1."
-      ]
+      ],
+      "solution": {
+        "problem": "Both mechanisms are on and now the fine dials matter: the residual scale, and layer norm's epsilon — the small constant added to the variance before dividing, there to avoid dividing by zero. The score is activation drift across layers, with three stars needing it under 0.001, and a variance floor attached so the level cannot be won by flattening the representation into nothing.",
+        "steps": [
+          {
+            "title": "See what a large epsilon does",
+            "body": "The level ships with epsilon = 2, which is enormous for this purpose. Drift measures 0.097 — already failing the 0.09 pass mark. Adding 2 to the variance before dividing dominates the actual variance, so the normalisation is only partially normalising and scale differences survive it."
+          },
+          {
+            "title": "Bring epsilon down by orders of magnitude",
+            "body": "Epsilon 0.01 brings drift to about 0.006 — two stars. Epsilon 0.00001, which is a realistic value for a real transformer implementation, brings it to about 0.000007, a clean three stars. This parameter lives on a logarithmic scale: the useful range spans seven orders of magnitude and every step of the search should be a multiplication, not an addition."
+          },
+          {
+            "title": "Leave the residual scale where it is",
+            "body": "The residual scale slider multiplies the skip connection before it is added. At 1 — the standard value — the stack behaves as designed. Turning it down starves the path that carries information forward, and turning it up amplifies drift rather than reducing it. There is no gain here, which is worth confirming rather than assuming."
+          },
+          {
+            "title": "Notice the floor that keeps the level honest",
+            "body": "A representation with almost no variance would have almost no drift, and that is a degenerate answer. The level attaches a minimum representation variance for exactly that reason — the same guard that the overfitting chapter's gap level needed. Optimising a stability metric without one always invites collapse."
+          }
+        ],
+        "answer": "Leave the residual scale at 1 and bring epsilon down to about 1e-5 — drift around 0.000007 and three stars. Autofill sweeps epsilon geometrically across its whole range, which is the only way to reach the small end of a [1e-7, 10] slider.",
+        "takeaway": "Epsilon is the kind of constant that looks like an implementation detail and is not: too large and normalisation quietly stops working, too small and it risks numerical instability in low precision. The same tension reappears in World 8, where quantisation makes every one of these tolerances tighter."
+      }
     }
   ]
 }

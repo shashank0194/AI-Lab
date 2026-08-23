@@ -17,6 +17,7 @@ import {
   initState,
   applyAction,
   evaluate,
+  solve,
   type ResidualToggleAction,
   type ResidualToggleConfig,
   type ResidualToggleState,
@@ -25,6 +26,7 @@ import { hiddenStateModel, HIDDEN_STATE_MODEL_ID } from '@/models/hiddenStateMod
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Slider, Tag, Toggle } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -63,7 +65,14 @@ export function ResidualCanvas({ game, level, onScore, onSubmit }: GameComponent
       load={load}
     >
       {state && (
-        <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} loadSentence={loadSentence} />
+        <Board
+          state={state}
+          dispatch={dispatch}
+          setState={setState}
+          onScore={onScore}
+          onSubmit={onSubmit}
+          loadSentence={loadSentence}
+        />
       )}
     </ModelGate>
   );
@@ -72,12 +81,15 @@ export function ResidualCanvas({ game, level, onScore, onSubmit }: GameComponent
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
   loadSentence,
 }: {
   state: ResidualToggleState;
   dispatch: (action: ResidualToggleAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: ResidualToggleState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
   loadSentence: (sentence: string) => Promise<void>;
@@ -94,6 +106,17 @@ function Board({
   }, [dispatch]);
 
   useRetrySignal(resetRun);
+
+  // The solution's autofill: the trace's own measured norms, or the switch and
+  // slider settings that really score best on this stack.
+  useSolutionFill(
+    useCallback(() => {
+      const solved = solve(state);
+      setState(solved);
+      setRevealed(true);
+      onSubmit(evaluate(solved));
+    }, [state, setState, onSubmit])
+  );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

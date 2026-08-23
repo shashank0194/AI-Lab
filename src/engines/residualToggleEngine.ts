@@ -240,6 +240,80 @@ export function applyAction(
   }
 }
 
+/* ────────────────────────────────────────────────────────────
+   Worked solution
+   ──────────────────────────────────────────────────────────── */
+
+/**
+ * The settings and answers this level's own hidden-state trace produces.
+ *
+ * The trace comes from a real forward pass, so the estimate level reads its
+ * answers straight out of state. The two toggle levels are searched over the
+ * switches and sliders the level exposes, scoring each combination through the
+ * level's own metric — including the representation-variance floor, which is
+ * what stops "minimise drift" being won by flattening the representation.
+ */
+export function solve(state: ResidualToggleState): ResidualToggleState {
+  if (state.mode === 'predict-trace') {
+    let next = state;
+    state.rounds.forEach((round, roundIndex) => {
+      next = applyAction(next, { type: 'ESTIMATE_TRACE', roundIndex, value: round.trueValue });
+    });
+    return next;
+  }
+
+  const comparator = state.rules.passCriteria.comparator;
+  const better = (candidate: number, incumbent: number) =>
+    comparator === 'gte' ? candidate > incumbent : candidate < incumbent;
+
+  const [scaleMin, scaleMax] = state.config.residualScaleRange ?? [
+    state.residualScale,
+    state.residualScale,
+  ];
+  const [epsilonMin, epsilonMax] = state.config.normEpsilonRange ?? [
+    state.normEpsilon,
+    state.normEpsilon,
+  ];
+
+  const scales = [1, scaleMin, scaleMax, 0.5, 1.5].filter(
+    (value, index, all) => value >= scaleMin && value <= scaleMax && all.indexOf(value) === index
+  );
+  // Geometric, because epsilon spans orders of magnitude and the answer is at
+  // the small end — a linear sweep of [1e-7, 10] would never visit it.
+  const epsilons: number[] = [epsilonMin, epsilonMax];
+  for (let i = 0; i <= 20; i++) {
+    epsilons.push(epsilonMin * (epsilonMax / epsilonMin) ** (i / 20));
+  }
+
+  let best: ResidualToggleState | null = null;
+  let bestValue = 0;
+
+  for (const residual of [true, false]) {
+    for (const layerNorm of [true, false]) {
+      for (const residualScale of scales) {
+        for (const normEpsilon of epsilons) {
+          let candidate = applyAction(state, { type: 'SET_RESIDUAL', value: residual });
+          candidate = applyAction(candidate, { type: 'SET_LAYER_NORM', value: layerNorm });
+          candidate = applyAction(candidate, {
+            type: 'SET_RESIDUAL_SCALE',
+            value: residualScale,
+          });
+          candidate = applyAction(candidate, { type: 'SET_NORM_EPSILON', value: normEpsilon });
+
+          const value = evaluate(candidate).value;
+          if (!Number.isFinite(value)) continue;
+          if (best === null || better(value, bestValue)) {
+            best = candidate;
+            bestValue = value;
+          }
+        }
+      }
+    }
+  }
+
+  return best ?? state;
+}
+
 export function evaluate(state: ResidualToggleState): ScoreResult {
   const { trace } = state;
 
