@@ -43,15 +43,37 @@
       },
       "starsRules": [
         { "threshold": 0.5, "stars": 1 },
-        { "threshold": 0.75, "stars": 2 },
-        { "threshold": 1, "stars": 3 }
+        { "threshold": 0.75, "stars": 3 }
       ],
       "xpReward": 40,
       "hints": [
         "None of these numbers are small enough for the model to just know the answer — it genuinely needs the real tool. Show it how to call the tool first.",
-        "Real measured behaviour: with zero worked examples the model never successfully completes the loop. Each worked example you add measurably improves it.",
-        "Checked directly against the real model, at the precision it actually runs at in your browser: 0 examples → 0 of 4 real hops succeed; 1 example → 3 of 4; 2 examples → 4 of 4."
-      ]
+        "Real measured behaviour: with zero worked examples the model never once completes the loop — it does not even produce a call the calculator can run. Each worked example you add measurably improves it, and the examples show the whole circuit at once: the call, the tool result, and the final answer.",
+        "Measured in a real browser: 0 examples → 0 of 4 hops complete; 1 example → 1 of 4; 2 examples → 3 of 4, which is the three-star band. The one that still fails at two examples asks for '62 times 14' and the model emits the expression as English — {\"expression\": \"62 times 14\"} — which is valid JSON the calculator cannot evaluate."
+      ],
+      "solution": {
+        "problem": "Four arithmetic questions, none of them small enough for a 135M model to answer from memory. Each one has to go all the way around the loop: the model emits a tool call, a real calculator evaluates it, the result is fed back in, and the model states a final answer. The score is how many of the four complete that whole circuit correctly. Your only lever is how many worked examples the prompt shows first.",
+        "steps": [
+          {
+            "title": "Count the ways one round can fail",
+            "body": "There are three real stages here and each can break independently. The model can fail to emit parseable JSON at all. It can emit valid JSON whose expression the calculator refuses to evaluate. Or it can get a correct tool result handed back and still state the wrong final answer. A round only counts when all three work, which is why this is harder than the JSON level in the previous chapter."
+          },
+          {
+            "title": "Notice the model cannot shortcut this",
+            "body": "The questions are deliberately large — 4867 plus 3931, 158 times 23. This model cannot do that arithmetic reliably in its head, so a round that skips the tool and answers directly will be wrong. That is the point: the tool is not decoration, it is the only path to a correct answer, and the loop is what connects them."
+          },
+          {
+            "title": "Measure the bare prompt",
+            "body": "Measured in a real browser: 0 of 4. And the failures are not near-misses. For '4867 plus 3931' the model emits the bare text '4867 + 3931' with no JSON around it. For another it emits {\"tool\": \"calculator\", \"args\": {\"expression\": \"...\"}} — the schema's own literal placeholder, copied back verbatim. A third opens the object with a square bracket. None of these reach the calculator, so no round gets as far as a final answer."
+          },
+          {
+            "title": "Watch the failures move down the pipeline",
+            "body": "One example reaches 1 of 4, and what is interesting is where the other three now break. '158 times 23' emits {\"result\": \"158x23\"} — the wrong schema entirely. '900 minus 275' emits a perfectly-shaped call whose expression is the English '900 minus 275', which the calculator cannot evaluate. '62 times 14' emits the expression '62', gets the tool result 62 back, and confidently states 62 as the final answer. Three different stages, three different failures. Two examples fixes the first two of those, reaching 3 of 4."
+          }
+        ],
+        "answer": "Choose 2 examples, then run all four hops: 3 of 4 complete, which is the three-star band. The remaining failure is '62 times 14', where the model writes the expression as English rather than arithmetic — three of four is the ceiling this lever reaches on this model, and the star bands are set to that measured ceiling rather than to a perfect score the level cannot produce. Autofill selects two examples and runs the same four real hops your own clicks would: a real decode, a real calculator call, and a real second decode per round.",
+        "takeaway": "An agent loop is a pipeline, not a single call, and its reliability is the product of every stage's reliability rather than the best stage's. Watch where the failures moved as the prompt improved: from 'no JSON at all' to 'wrong schema' to 'valid call the tool cannot run' to 'right tool result, wrong final answer'. Fixing the prompt moved the failure downstream rather than removing it, which is why agent frameworks spend most of their code on the seams — parsing, validating, feeding results back — and comparatively little on the prompt."
+      }
     },
     {
       "id": "7-4-l2",
@@ -88,7 +110,30 @@
         "This reuses 7.3's discovery: the real model picks whichever tool you demonstrated last, almost regardless of the instruction. Put the tool that actually fits last.",
         "The lookup tool is checked against the same real fact corpus 7.1 and 7.2 used — its results are real bundled facts, not invented ones, and the calculator really evaluates your expression.",
         "Checked directly: the lookup half of this level is very reliable once the right tool is picked. The calculator half is real but noisier — verified live, one full run reached 4 of these 6 instructions correct end to end. Real, sometimes-imperfect small-model behaviour, not a bug to route around."
-      ]
+      ],
+      "solution": {
+        "problem": "Six instructions and two real tools: a calculator that genuinely evaluates arithmetic, and a lookup that genuinely searches the same bundled fact corpus World 7.1 and 7.2 used. A round only counts if the model picks the right tool *and* the final answer it states contains the real answer. Your lever is the same one the last chapter uncovered — which tool is listed and demonstrated last.",
+        "steps": [
+          {
+            "title": "Reuse what the last chapter measured",
+            "body": "Tool choice on this model is driven by recency, not by the instruction's meaning: whichever tool is described and demonstrated last is what gets picked. So the strategy is fixed before you run anything — for each instruction, put the tool that actually fits it last."
+          },
+          {
+            "title": "Understand why picking right is only half of it",
+            "body": "This level scores the pick and the answer. A round where the model correctly chooses lookup, the tool correctly returns 10,935, and the model then says something else entirely still counts as wrong. That is a real failure mode of agent systems and it is invisible to a router that only logs which tool was called."
+          },
+          {
+            "title": "Watch the two halves behave differently",
+            "body": "The lookup half is the easier one: the tool hands back a short fact and the model mostly repeats it. The calculator half has to survive the same two-decode circuit as level 1 — emit a valid expression, then restate a number it has just been given."
+          },
+          {
+            "title": "Run all six and read the failures honestly",
+            "body": "Some rounds will be wrong, and it is worth looking at which stage broke in each: the picked tool, the tool result, and the final answer are all shown separately underneath each round for exactly that reason."
+          }
+        ],
+        "answer": "Put each instruction's own tool last — calculator for the arithmetic ones, lookup for the factual ones — and run all six. Autofill sets each round's ordering that way and runs the six real hops, scoring whatever the model and the real tools actually produced.",
+        "takeaway": "Routing accuracy and end-to-end accuracy are different numbers, and only the second one matters to the person asking the question. An agent that picks the right tool, gets the right result, and then misreports it has failed just as completely as one that never called the tool at all."
+      }
     },
     {
       "id": "7-4-l3",
@@ -124,7 +169,30 @@
         "A bigger retry budget can't fix a prompt that's fundamentally broken — try 0 examples with the full retry budget and watch it still fail every task.",
         "Real randomness means even a good prompt occasionally needs a second real attempt — that's genuine model variance, not a bug.",
         "Checked directly against the real model, with real random sampling and a budget of 2 real attempts per task: 0 examples solved 0 of 3 tasks even with every retry used; 1 example solved all 3; 2 examples solved 2 of 3 in one real run — more examples generally help, but real sampling adds genuine variance that isn't perfectly monotonic and that retries alone don't erase."
-      ]
+      ],
+      "solution": {
+        "problem": "The same loop as level 1, but decoding is now genuinely stochastic — temperature 0.7, sampled from the model's own top-k — so the same prompt can succeed on one attempt and fail on the next. You control two dials: how many worked examples the prompt carries, and how many real attempts each task gets before it is given up on. The score is the fraction of the three tasks that end up solved.",
+        "steps": [
+          {
+            "title": "Separate the two dials",
+            "body": "Examples change how likely any single attempt is to work. Retries change how many chances that likelihood gets. They compose, but they are not interchangeable — and one of them has a floor the other cannot lift."
+          },
+          {
+            "title": "See that retries cannot fix a broken prompt",
+            "body": "Try zero examples with the full retry budget. Every attempt is a fresh sample from the same distribution, and if that distribution almost never produces a parseable call, sampling it twice mostly produces two unparseable calls. Retrying a prompt that is wrong in kind, rather than unlucky, just spends the budget twice."
+          },
+          {
+            "title": "See what retries do buy",
+            "body": "With a prompt that works most of the time, a second attempt converts the occasional unlucky sample into a success. That is the honest case for a retry budget: it buys back variance, not capability."
+          },
+          {
+            "title": "Set both dials before running",
+            "body": "So the setting is the maximum on both: as many worked examples as the level offers, and the full retry budget. Note that the run is seeded per task and attempt, so the same settings reproduce the same batch — this is not a slot machine you can reroll."
+          }
+        ],
+        "answer": "Set the example count to its maximum and the retry budget to its maximum, then run the batch. Autofill runs a real batch per candidate example count, most examples first, and keeps the first that genuinely solves every task — so the result it submits is a batch that actually ran on your device, not an assumed one.",
+        "takeaway": "Retry budget is a real production dial and it is easy to misuse: it multiplies cost linearly and only helps against variance. If a prompt is failing because it is the wrong prompt, no budget rescues it — which is why the first question about a flaky agent is always 'is this variance, or is this broken?'"
+      }
     }
   ]
 }

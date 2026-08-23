@@ -11,6 +11,9 @@ import {
   buildFinalAnswerPrompt,
   parseAgentCall,
   containsAnswer,
+  solve,
+  budgetCandidates,
+  MAX_EXAMPLE_COUNT,
   type AgentLoopConfig,
 } from '@/engines/agentLoopEngine';
 import type { CausalLMDep, CorpusDep } from '@/engines/deps';
@@ -405,5 +408,138 @@ describe('agentLoopEngine — SUBMIT', () => {
     let state = initState(config, hopRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('agentLoopEngine — solve (the worked solution\'s autofill)', () => {
+  const hopConfig: AgentLoopConfig = {
+    mode: 'single-hop',
+    maxTokens: 40,
+    finalAnswerMaxTokens: 16,
+    tasks: [
+      { question: 'What is 3 plus 4?', canonicalExpression: '3 + 4' },
+      { question: 'What is 20 minus 6?', canonicalExpression: '20 - 6' },
+    ],
+  };
+
+  it('selects the most worked examples and scores the real hops it is handed', async () => {
+    const state = initState(hopConfig, hopRules, await prepare(hopConfig, {}));
+
+    const levers = solve(state);
+    expect(levers.exampleCount).toBe(MAX_EXAMPLE_COUNT);
+    expect(levers.hopRounds.every((r) => !r.tested)).toBe(true);
+    expect(evaluate(levers).value).toBe(0);
+
+    const solved = solve(state, {
+      exampleCount: MAX_EXAMPLE_COUNT,
+      hops: [
+        { toolCallText: '{"tool": "calculator", "args": {"expression": "3 + 4"}}', toolResult: '7', finalAnswerText: ' 7\n\n' },
+        { toolCallText: '{"tool": "calculator", "args": {"expression": "20 - 6"}}', toolResult: '14', finalAnswerText: ' 14\n\n' },
+      ],
+    });
+    expect(solved.hopRounds.every((r) => r.tested)).toBe(true);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('scores a hop the model really got wrong as wrong', async () => {
+    const state = initState(hopConfig, hopRules, await prepare(hopConfig, {}));
+    const solved = solve(state, {
+      hops: [
+        { toolCallText: '{"tool": "calculator", "args": {"expression": "3 + 4"}}', toolResult: '7', finalAnswerText: ' 7\n\n' },
+        // A real run where the model restated the question instead of answering.
+        { toolCallText: 'Question: What is 20 minus 6?', toolResult: null, finalAnswerText: '' },
+      ],
+    });
+    expect(evaluate(solved).value).toBeCloseTo(0.5);
+  });
+
+  const selectConfig: AgentLoopConfig = {
+    mode: 'tool-select-hop',
+    maxTokens: 30,
+    finalAnswerMaxTokens: 20,
+    corpus: 'retrieval-facts',
+    instructions: [
+      { text: 'What is 84 minus 19?', expectedTool: 'calculator', canonicalExpression: '84 - 19' },
+      { text: 'How deep is the Mariana Trench?', expectedTool: 'lookup', factId: 'mariana' },
+    ],
+  };
+
+  it('puts each instruction\'s own tool last and requires the real answer, not just the right tool', async () => {
+    const state = initState(selectConfig, selectHopRules, await prepare(selectConfig, { corpus: fakeCorpus }));
+
+    const levers = solve(state);
+    expect(levers.selectRounds.map((r) => r.lastOrder)).toEqual(['calculator', 'lookup']);
+
+    const solved = solve(state, {
+      selectHops: [
+        {
+          lastTool: 'calculator',
+          toolCallText: '{"tool": "calculator", "args": {"expression": "84 - 19"}}',
+          pickedTool: 'calculator',
+          toolResult: '65',
+          finalAnswerText: ' 65\n\n',
+        },
+        {
+          // Right tool, but the model never restated the fact it was handed.
+          lastTool: 'lookup',
+          toolCallText: '{"tool": "lookup", "args": {"topic": "Mariana Trench"}}',
+          pickedTool: 'lookup',
+          toolResult: '10,935',
+          finalAnswerText: ' I am not sure.\n\n',
+        },
+      ],
+    });
+    expect(solved.selectRounds.every((r) => r.tested)).toBe(true);
+    expect(evaluate(solved).value).toBeCloseTo(0.5);
+  });
+
+  const budgetConfig: AgentLoopConfig = {
+    mode: 'budget-tuning',
+    maxTokens: 40,
+    finalAnswerMaxTokens: 16,
+    temperature: 0.7,
+    sampleTopK: 20,
+    retryBudgetMax: 2,
+    tasks: [
+      { question: 'What is 3 plus 4?', canonicalExpression: '3 + 4' },
+      { question: 'What is 20 minus 6?', canonicalExpression: '20 - 6' },
+    ],
+  };
+
+  it('never spends a batch on the zero-example prompt that is measured to fail', () => {
+    expect(budgetCandidates()).not.toContain(0);
+    expect(budgetCandidates()[0]).toBe(MAX_EXAMPLE_COUNT);
+  });
+
+  it('raises the retry budget to the configured maximum and records the real batch', async () => {
+    const state = initState(budgetConfig, budgetRules, await prepare(budgetConfig, {}));
+    expect(state.retryBudget).toBe(1);
+
+    const solved = solve(state, {
+      exampleCount: 1,
+      retryBudget: 2,
+      budgetResults: [
+        { question: 'What is 3 plus 4?', solved: true, attemptsUsed: 1 },
+        { question: 'What is 20 minus 6?', solved: true, attemptsUsed: 2 },
+      ],
+    });
+    expect(solved.exampleCount).toBe(1);
+    expect(solved.retryBudget).toBe(2);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('reports a batch that really only solved half as half', async () => {
+    const state = initState(budgetConfig, budgetRules, await prepare(budgetConfig, {}));
+    const solved = solve(state, {
+      retryBudget: 2,
+      budgetResults: [
+        { question: 'What is 3 plus 4?', solved: true, attemptsUsed: 1 },
+        { question: 'What is 20 minus 6?', solved: false, attemptsUsed: 2 },
+      ],
+    });
+    expect(evaluate(solved).value).toBeCloseTo(0.5);
+    expect(evaluate(solved).stars).toBe(1);
   });
 });

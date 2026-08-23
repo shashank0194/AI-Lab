@@ -424,6 +424,106 @@ export function applyAction(state: AgentLoopState, action: AgentLoopAction): Age
   }
 }
 
+/** The most worked examples any level here offers — `CALC_EXAMPLES` holds two. */
+export const MAX_EXAMPLE_COUNT: 0 | 1 | 2 = 2;
+
+/**
+ * Example counts the budget-tuning solution is willing to spend a real batch
+ * on, in order.
+ *
+ * Zero is excluded rather than tried last: it is the setting the board opens
+ * on, it is measured to fail every task even with the whole retry budget, and
+ * a batch here is expensive enough (three tasks, up to two sampled attempts
+ * each, two decodes per attempt) that a run known to fail is not worth the
+ * player's wait. The remaining two are ordered most-promising first, and the
+ * canvas keeps the first batch that really solves every task.
+ */
+export function budgetCandidates(): (0 | 1 | 2)[] {
+  return [MAX_EXAMPLE_COUNT, 1];
+}
+
+/**
+ * The worked solution's autofill.
+ *
+ * Every mode here is scored on what the model and the real tools actually
+ * produced, so `solve()` never generates anything: the canvas runs the same
+ * hops a player's clicks would and passes the results in. With no results
+ * supplied it only moves the levers — the example count, the tool order, the
+ * retry budget — which is what a player does before pressing run.
+ */
+export function solve(
+  state: AgentLoopState,
+  options?: {
+    /** single-hop / budget-tuning: the count the canvas actually ran at. */
+    exampleCount?: 0 | 1 | 2;
+    /** single-hop: one real hop per round, in round order. */
+    hops?: ({ toolCallText: string; toolResult: string | null; finalAnswerText: string } | null)[];
+    /** tool-select-hop: the order used and the real hop it produced, per round. */
+    selectHops?: ({
+      lastTool: 'calculator' | 'lookup';
+      toolCallText: string;
+      pickedTool: string | null;
+      toolResult: string | null;
+      finalAnswerText: string;
+    } | null)[];
+    /** budget-tuning: the retry budget used, and the batch it really produced. */
+    retryBudget?: number;
+    budgetResults?: BudgetTaskResult[];
+  }
+): AgentLoopState {
+  switch (state.mode) {
+    case 'single-hop': {
+      let next = applyAction(state, {
+        type: 'SET_EXAMPLE_COUNT',
+        count: options?.exampleCount ?? MAX_EXAMPLE_COUNT,
+      });
+      state.hopRounds.forEach((_, roundIndex) => {
+        const hop = options?.hops?.[roundIndex];
+        if (!hop) return;
+        next = applyAction(next, { type: 'TEST_HOP', roundIndex, ...hop });
+      });
+      return next;
+    }
+
+    case 'tool-select-hop': {
+      let next = state;
+      state.selectRounds.forEach((round, roundIndex) => {
+        const hop = options?.selectHops?.[roundIndex];
+        next = applyAction(next, {
+          type: 'SET_TOOL_ORDER',
+          roundIndex,
+          lastTool: hop?.lastTool ?? round.expectedTool,
+        });
+        if (!hop) return;
+        next = applyAction(next, {
+          type: 'TEST_SELECT_HOP',
+          roundIndex,
+          toolCallText: hop.toolCallText,
+          pickedTool: hop.pickedTool,
+          toolResult: hop.toolResult,
+          finalAnswerText: hop.finalAnswerText,
+        });
+      });
+      return next;
+    }
+
+    case 'budget-tuning': {
+      let next = applyAction(state, {
+        type: 'SET_EXAMPLE_COUNT',
+        count: options?.exampleCount ?? budgetCandidates()[0]!,
+      });
+      next = applyAction(next, {
+        type: 'SET_RETRY_BUDGET',
+        budget: options?.retryBudget ?? (state.config.retryBudgetMax ?? 3),
+      });
+      if (options?.budgetResults) {
+        next = applyAction(next, { type: 'RUN_BUDGET_TEST', results: options.budgetResults });
+      }
+      return next;
+    }
+  }
+}
+
 export function evaluate(state: AgentLoopState): ScoreResult {
   switch (state.mode) {
     case 'single-hop': {

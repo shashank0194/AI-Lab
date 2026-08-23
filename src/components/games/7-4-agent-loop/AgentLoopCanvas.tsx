@@ -19,6 +19,9 @@ import {
   evaluate,
   greedyDecode,
   sampledDecode,
+  solve,
+  budgetCandidates,
+  MAX_EXAMPLE_COUNT,
   buildSingleHopPrompt,
   buildToolSelectHopPrompt,
   buildFinalAnswerPrompt,
@@ -35,6 +38,7 @@ import { corpusLoader } from '@/models/corpusLoader';
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -64,7 +68,9 @@ export function AgentLoopCanvas({ game, level, onScore, onSubmit }: GameComponen
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board state={state} dispatch={dispatch} setState={setState} onScore={onScore} onSubmit={onSubmit} />
+      )}
     </ModelGate>
   );
 }
@@ -72,11 +78,14 @@ export function AgentLoopCanvas({ game, level, onScore, onSubmit }: GameComponen
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: AgentLoopState;
   dispatch: (action: AgentLoopAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: AgentLoopState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -90,6 +99,81 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. Every level here is scored on real hops — a real
+  // decode, a real tool call, a real second decode — so the fill runs exactly
+  // the hops a player's clicks would and hands the results to `solve()`.
+  // Level 3 also searches: a full batch is run per candidate example count,
+  // most promising first, stopping as soon as one really solves every task.
+  const [filling, setFilling] = useState(false);
+
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        setFilling(true);
+        await yieldToPaint();
+        try {
+          if (state.mode === 'single-hop') {
+            const hops = [];
+            for (const round of state.hopRounds) {
+              hops.push(
+                await runSingleHop(
+                  round.question,
+                  MAX_EXAMPLE_COUNT,
+                  state.config.maxTokens,
+                  state.config.finalAnswerMaxTokens
+                )
+              );
+            }
+            const solved = solve(state, { exampleCount: MAX_EXAMPLE_COUNT, hops });
+            setState(solved);
+            setRevealed(true);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          if (state.mode === 'tool-select-hop') {
+            const selectHops = [];
+            for (const round of state.selectRounds) {
+              const hop = await runSelectHop(
+                round.text,
+                round.expectedTool,
+                state.config.maxTokens,
+                state.config.finalAnswerMaxTokens
+              );
+              selectHops.push({ lastTool: round.expectedTool, ...hop });
+            }
+            const solved = solve(state, { selectHops });
+            setState(solved);
+            setRevealed(true);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          const retryBudget = state.config.retryBudgetMax ?? 3;
+          let best: { exampleCount: 0 | 1 | 2; results: BudgetTaskResult[] } | null = null;
+          for (const exampleCount of budgetCandidates()) {
+            const results = await runBudgetBatch(state, exampleCount, retryBudget);
+            const solvedCount = results.filter((r) => r.solved).length;
+            if (!best || solvedCount > best.results.filter((r) => r.solved).length) {
+              best = { exampleCount, results };
+            }
+            if (solvedCount === results.length) break;
+          }
+          const solved = solve(state, {
+            exampleCount: best?.exampleCount,
+            retryBudget,
+            budgetResults: best?.results,
+          });
+          setState(solved);
+          setRevealed(true);
+          onSubmit(evaluate(solved));
+        } finally {
+          setFilling(false);
+        }
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));
@@ -114,7 +198,8 @@ function Board({
           <RotateCcw size={13} strokeWidth={2} />
           Reset
         </Button>
-        {!revealed && blocked && <span className="label">{submitHint(state)}</span>}
+        {filling && <Tag tone="accent">running the solution&rsquo;s hops…</Tag>}
+        {!filling && !revealed && blocked && <span className="label">{submitHint(state)}</span>}
         {revealed && <Tag tone="accent">answers revealed</Tag>}
         <Button
           variant="primary"
@@ -416,6 +501,54 @@ function SelectHopRoundPanel({
 
 /* ── level 3: budget tuning ────────────────────────────────────── */
 
+/**
+ * One real batch: every task, up to `retryBudget` genuinely sampled attempts
+ * each, with a real calculator call in between. Seeded per task and attempt,
+ * so the same settings reproduce the same run — which is what makes the
+ * solution's search meaningful rather than a reroll.
+ */
+async function runBudgetBatch(
+  state: AgentLoopState,
+  exampleCount: 0 | 1 | 2,
+  retryBudget: number
+): Promise<BudgetTaskResult[]> {
+  const temperature = state.config.temperature ?? 0.7;
+  const topK = state.config.sampleTopK ?? 20;
+  const results: BudgetTaskResult[] = [];
+
+  for (const task of state.budgetTasks) {
+    let solved = false;
+    let attemptsUsed = 0;
+    for (let attempt = 0; attempt < retryBudget; attempt++) {
+      attemptsUsed++;
+      const seed = seedFor(`${task.question}:${exampleCount}:${attempt}`);
+      const toolCallPrompt = buildSingleHopPrompt(task.question, exampleCount);
+      const toolCallText = await sampledDecode(tinyCausalLM, toolCallPrompt, state.config.maxTokens, {
+        temperature,
+        topK,
+        seed,
+      });
+      const call = parseAgentCall(toolCallText);
+      if (!call) continue;
+      const expression = typeof call.args.expression === 'string' ? call.args.expression : '';
+      const toolResult = await toolRuntime.run('calculator', { expression });
+      if (!toolResult.ok) continue;
+      const finalPrompt = buildFinalAnswerPrompt(toolCallPrompt, call.cleanJson, toolResult.output);
+      const finalAnswerText = await sampledDecode(tinyCausalLM, finalPrompt, state.config.finalAnswerMaxTokens, {
+        temperature,
+        topK,
+        seed: seed + 1000,
+      });
+      if (containsAnswer(finalAnswerText, task.expectedAnswer)) {
+        solved = true;
+        break;
+      }
+    }
+    results.push({ question: task.question, solved, attemptsUsed });
+  }
+  return results;
+}
+
 function BudgetTuningBoard({
   state,
   dispatch,
@@ -427,45 +560,13 @@ function BudgetTuningBoard({
 }) {
   const [busy, setBusy] = useState(false);
   const maxBudget = state.config.retryBudgetMax ?? 3;
-  const temperature = state.config.temperature ?? 0.7;
-  const topK = state.config.sampleTopK ?? 20;
 
   const runBatch = async () => {
     if (busy) return;
     setBusy(true);
     await yieldToPaint();
     try {
-      const results: BudgetTaskResult[] = [];
-      for (const task of state.budgetTasks) {
-        let solved = false;
-        let attemptsUsed = 0;
-        for (let attempt = 0; attempt < state.retryBudget; attempt++) {
-          attemptsUsed++;
-          const seed = seedFor(`${task.question}:${state.exampleCount}:${attempt}`);
-          const toolCallPrompt = buildSingleHopPrompt(task.question, state.exampleCount);
-          const toolCallText = await sampledDecode(tinyCausalLM, toolCallPrompt, state.config.maxTokens, {
-            temperature,
-            topK,
-            seed,
-          });
-          const call = parseAgentCall(toolCallText);
-          if (!call) continue;
-          const expression = typeof call.args.expression === 'string' ? call.args.expression : '';
-          const toolResult = await toolRuntime.run('calculator', { expression });
-          if (!toolResult.ok) continue;
-          const finalPrompt = buildFinalAnswerPrompt(toolCallPrompt, call.cleanJson, toolResult.output);
-          const finalAnswerText = await sampledDecode(tinyCausalLM, finalPrompt, state.config.finalAnswerMaxTokens, {
-            temperature,
-            topK,
-            seed: seed + 1000,
-          });
-          if (containsAnswer(finalAnswerText, task.expectedAnswer)) {
-            solved = true;
-            break;
-          }
-        }
-        results.push({ question: task.question, solved, attemptsUsed });
-      }
+      const results = await runBudgetBatch(state, state.exampleCount, state.retryBudget);
       dispatch({ type: 'RUN_BUDGET_TEST', results });
     } finally {
       setBusy(false);
