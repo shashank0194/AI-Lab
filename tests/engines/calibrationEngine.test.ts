@@ -5,6 +5,7 @@ import {
   applyAction,
   evaluate,
   realDropped,
+  solve,
   type CalibrationConfig,
 } from '@/engines/calibrationEngine';
 import type { CausalLMDep, CorpusDep, TokenDistribution } from '@/engines/deps';
@@ -296,5 +297,70 @@ describe('calibrationEngine — submit', () => {
     let state = initState(config, predictRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('calibrationEngine — solve (the worked solution\'s autofill)', () => {
+  it('answers each round with whether the real ungrounded decode was actually correct', async () => {
+    const config: CalibrationConfig = {
+      mode: 'predict-correctness',
+      factSources: ['facts'],
+      maxTokens: 5,
+      factIds: ['right-fact', 'wrong-low', 'wrong-high'],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: baselineCausalLM });
+    const solved = solve(initState(config, predictRules, prepared));
+
+    // Follows the measurement, not confidence: 'wrong-high' is the model's
+    // most confident answer in the set and is wrong, so it must be marked wrong.
+    const byId = new Map(solved.predictRounds.map((r) => [r.factId, r]));
+    expect(byId.get('right-fact')!.guess).toBe(true);
+    expect(byId.get('wrong-low')!.guess).toBe(false);
+    expect(byId.get('wrong-high')!.guess).toBe(false);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('picks the real wrong-and-most-confident candidate in each spot round', async () => {
+    const config: CalibrationConfig = {
+      mode: 'spot-hallucination',
+      factSources: ['facts'],
+      maxTokens: 5,
+      rounds: [{ candidateFactIds: ['right-fact', 'wrong-low', 'wrong-high'] }],
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: baselineCausalLM });
+    const solved = solve(initState(config, spotRules, prepared));
+
+    expect(solved.spotRounds[0]!.guessFactId).toBe('wrong-high');
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
+  });
+
+  it('answers each framing round in the direction the confidence really moved', async () => {
+    const framingCausalLM = scriptedCausalLM([
+      { match: (p) => p.includes('Only answer') && p.includes('How many are there?'), tokens: [' nine', '\n\n'], probs: [0.8, 0.8] },
+      { match: (p) => p.includes('Only answer') && p.includes('What is the count?'), tokens: [' ten', '\n\n'], probs: [0.1, 0.1] },
+      { match: (p) => p.includes('How many are there?'), tokens: [' nine', '\n\n'], probs: [0.2, 0.2] },
+      { match: (p) => p.includes('What is the count?'), tokens: [' ten', '\n\n'], probs: [0.95, 0.95] },
+    ]);
+    const config: CalibrationConfig = {
+      mode: 'reduce-confidence',
+      factSources: ['facts'],
+      maxTokens: 5,
+      targetFactIds: ['wrong-low', 'wrong-high'],
+      framingTemplate: 'Only answer if certain. Question: {query}\nAnswer:',
+    };
+    const prepared = await prepare(config, { corpus: fakeCorpus, causalLM: framingCausalLM });
+    const solved = solve(initState(config, dropRules, prepared));
+
+    // One fact's confidence really rose under the cautious framing and the
+    // other's really fell, so a solution that always answered "drop" would
+    // score half. Both must follow `realDropped`.
+    const byId = new Map(solved.framingRounds.map((r) => [r.factId, r]));
+    expect(byId.get('wrong-low')!.guess).toBe('rise');
+    expect(byId.get('wrong-high')!.guess).toBe('drop');
+    expect(solved.framingRounds.every((r) => r.guess === (realDropped(r) ? 'drop' : 'rise'))).toBe(true);
+    expect(evaluate(solved).value).toBe(1);
+    expect(evaluate(solved).stars).toBe(3);
   });
 });

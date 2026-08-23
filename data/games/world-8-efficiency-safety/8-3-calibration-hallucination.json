@@ -55,7 +55,26 @@
         "Real confidence here is the model's own average probability across the tokens of the answer it actually generated — high confidence is not the same thing as the model actually knowing the fact.",
         "Watch for real confidence values that don't sort the way you'd expect: some of the correct answers here have *lower* real confidence than some of the wrong ones sitting right next to them.",
         "Checked directly against the real model: the single most confident answer here, 'The capital of Japan is Tokyo' (real 95.5%), is correct — but the very next most confident, 'Mars is the closest planet to the Sun' (real 76.5%), is confidently wrong (the real answer is Mercury). Correct and wrong alternate all the way down this list by confidence rank; a simple 'high confidence = correct' rule scores no better here than chance."
-      ]
+      ],
+      "solution": {
+        "problem": "Eight questions asked with zero supporting context, so the model has only what is in its weights. Each answer it actually produced is shown along with its real confidence — the average probability it assigned to the tokens it chose. Your job is to say, for each one, whether that answer is actually correct. The confidence number is visible from the start, which is precisely the trap.",
+        "steps": [
+          {
+            "title": "Know what confidence here is and is not",
+            "body": "It is the model's average probability over the tokens of the answer it generated. That measures how strongly the weights preferred those words — how unhesitating the model was. It does not measure whether the claim is true, and nothing in the training objective makes those two things line up. A model rewarded for predicting likely text will state a likely-sounding falsehood just as smoothly as a fact."
+          },
+          {
+            "title": "Test the shortcut before trusting it",
+            "body": "The obvious strategy is to sort by confidence and call the top half correct. Check it against the real numbers: 'The capital of Japan is Tokyo' is the most confident answer at 95.5% and it is right. The second most confident, at 76.5%, is 'Mars is the closest planet to the Sun' — which is wrong; the answer is Mercury. Correct and wrong keep alternating down the confidence ranking, so the shortcut scores about chance."
+          },
+          {
+            "title": "Answer from what you know instead",
+            "body": "Since confidence carries no signal here, the only real strategy is to evaluate each claim on its merits — exactly what a reader of a model's output has to do. That is the uncomfortable point of the level: the number that looks like it should tell you when to check does not tell you when to check."
+          }
+        ],
+        "answer": "Judge each of the eight answers on whether the claim is actually true, ignoring the confidence column. Autofill answers each round from whether that round's real decode genuinely contained the verified answer, which is measured per device — so if your model got a different question right or wrong, the fill matches your run rather than this text.",
+        "takeaway": "This is what 'poorly calibrated' means concretely: the model's confidence and its accuracy are close to uncorrelated on questions it half-knows. Any product that surfaces a confidence score as a trust signal — or auto-accepts above a threshold — needs to prove that correlation exists on its own task first, because it does not come for free."
+      }
     },
     {
       "id": "8-3-l2",
@@ -88,7 +107,26 @@
         "Confidence is hidden until you commit to a guess in each round — you have to judge which claim is actually false yourself first, the same way a reader would have to.",
         "In every one of these three rounds, the model's most dangerous wrong answer is stated with more real confidence than its own correct answer sitting right next to it in the same round — the fluent, confident tone gives no warning either way.",
         "Checked directly against the real model: round 1's 'A ripe banana is red' (the real answer is yellow) is real 70.2%, above the round's own correct answer about Germany's capital (60.6%). Round 2's 'The deepest point of the Mariana Trench is 36 meters deep' (the real answer is 10,935) is real 66.6%, above the round's correct answer about the largest planet (60.3%). Round 3's 'The fastest land animal is the kangaroo' (the real answer is the cheetah) is real 67.8% — 16 points above the round's own correct answer about the sky's color (51.8%), the widest gap of the three."
-      ]
+      ],
+      "solution": {
+        "problem": "Three rounds, four real ungrounded answers each. In every round exactly one answer is both factually wrong and the most confident wrong answer of its group — that is the one to find. Confidence is hidden until you commit, so you have to judge the claims the way a reader would: by knowing things.",
+        "steps": [
+          {
+            "title": "Read for falsehood, not for hedging",
+            "body": "None of these answers hedge. They are all short, fluent, declarative statements, and the wrong ones read exactly like the right ones. Since the confidence numbers are hidden until you guess, the only available signal is whether you personally know the claim to be false — which is the honest simulation of what using a model actually demands."
+          },
+          {
+            "title": "Find the false claim in each round",
+            "body": "Round 1: 'A ripe banana is red' — it is yellow. Round 2: 'The deepest point of the Mariana Trench is 36 meters deep' — it is 10,935. Round 3: 'The fastest land animal is the kangaroo' — it is the cheetah. Each of these sits alongside three other answers, some of which are perfectly correct."
+          },
+          {
+            "title": "Then look at what the confidence numbers did",
+            "body": "In all three rounds the wrong answer is stated *more* confidently than the round's own correct answer. The banana claim is 70.2% against 60.6% for Germany's capital. The trench claim is 66.6% against 60.3% for the largest planet. The kangaroo claim is 67.8% against 51.8% for the sky's colour — a 16-point gap in the wrong direction, and the widest of the three."
+          }
+        ],
+        "answer": "Pick the banana claim in round 1, the Mariana Trench depth in round 2, and the kangaroo claim in round 3 — 3 of 3, three stars. Autofill selects each round's genuinely wrong-and-most-confident candidate from the real measurement rather than from this list.",
+        "takeaway": "Confidence does not merely fail to flag hallucinations here — it actively points the wrong way, rating the fabrications above the facts. That is why 'the model seemed sure' is not evidence, and why hallucination detection has to come from outside the model: retrieval, a verifier, a second source. The model's own certainty is not a smoke alarm."
+      }
     },
     {
       "id": "8-3-l3",
@@ -118,7 +156,30 @@
         "This isn't a one-way effect — asking the model to be cautious does not reliably lower its confidence on every wrong answer, and it never once makes the model actually say \"I don't know.\"",
         "There's no reliable rule for which of these six respond and which don't — the same six words of caution shrink some hallucinations by 20+ points while growing others by nearly as much, on facts that look otherwise similar.",
         "Checked directly against the real model, none of these six ever said \"I don't know\": confidence really dropped hardest for the banana's color (70.2% → 43.8%), the Great Barrier Reef's length (58.8% → 35.7%), and the Amazon's length (53.0% → 33.0%) — but it really rose for Italy's capital (55.6% → 74.3%), the Burj Khalifa's height (61.3% → 72.2%), and France's capital (58.1% → 61.9%)."
-      ]
+      ],
+      "solution": {
+        "problem": "Six questions the model already gets wrong with no context. You add a cautious framing — 'only answer with a number if you are completely certain; otherwise say you don't know' — and predict, for each one, whether its confidence in the (still wrong) answer really goes up or down. The intuition being tested is that telling a model to be careful makes it less sure.",
+        "steps": [
+          {
+            "title": "Notice what the framing did not do",
+            "body": "Across all six, the model never once said 'I don't know'. The instruction offered it an explicit escape hatch and it took it zero times out of six — it just answered anyway, still wrong. Whatever the framing changes, it does not change that."
+          },
+          {
+            "title": "Expect a two-way effect",
+            "body": "The framing is not a volume knob on confidence. It rewrote the prompt, and a rewritten prompt is a different distribution — sometimes flatter, sometimes sharper. There is no mechanism forcing the change to be a decrease, so the honest prior is that it moves both ways."
+          },
+          {
+            "title": "Read the three that dropped",
+            "body": "Confidence really fell for the banana's colour (70.2% → 43.8%), the Great Barrier Reef's length (58.8% → 35.7%), and the Amazon's length (53.0% → 33.0%) — drops of 20 to 26 points."
+          },
+          {
+            "title": "Read the three that rose",
+            "body": "And it really rose for Italy's capital (55.6% → 74.3%), the Burj Khalifa's height (61.3% → 72.2%), and France's capital (58.1% → 61.9%). The caution instruction made the model *more* certain of a wrong answer in half these cases. There is no visible property separating the two groups — they are structurally similar questions."
+          }
+        ],
+        "answer": "Predict a drop for the banana, the reef and the Amazon; predict a rise for Italy, the Burj Khalifa and France — 6 of 6, three stars. Autofill compares each round's real baseline and framed confidence and answers in the direction they actually moved on your device.",
+        "takeaway": "Prompt-level 'calibration fixes' are not calibration. Asking a model to be cautious changes its wording and can move its confidence in either direction without touching whether it is right — and here it never once produced the abstention it explicitly authorised. Real calibration comes from measurement and post-hoc adjustment, not from asking nicely."
+      }
     }
   ]
 }

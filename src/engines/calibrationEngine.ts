@@ -300,6 +300,48 @@ export function applyAction(state: CalibrationState, action: CalibrationAction):
   }
 }
 
+/**
+ * The worked solution's autofill.
+ *
+ * Pure: every question in this chapter was already asked of the real model
+ * during `prepare()` — ungrounded, then again under the cautious framing —
+ * and each round's real correctness, real confidence and real confidence
+ * delta were recorded then. The solution answers from those measurements, so
+ * a device whose model happened to answer a question differently gets an
+ * answer that matches its own run rather than this text.
+ */
+export function solve(state: CalibrationState): CalibrationState {
+  switch (state.mode) {
+    case 'predict-correctness': {
+      let next = state;
+      state.predictRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'GUESS_CORRECTNESS', roundIndex, guess: round.correct });
+      });
+      return next;
+    }
+
+    case 'spot-hallucination': {
+      let next = state;
+      state.spotRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, { type: 'GUESS_HALLUCINATION', roundIndex, factId: round.targetFactId });
+      });
+      return next;
+    }
+
+    case 'reduce-confidence': {
+      let next = state;
+      state.framingRounds.forEach((round, roundIndex) => {
+        next = applyAction(next, {
+          type: 'GUESS_DELTA',
+          roundIndex,
+          guess: realDropped(round) ? 'drop' : 'rise',
+        });
+      });
+      return next;
+    }
+  }
+}
+
 /** Real: did this round's confidence actually drop once the cautious framing was applied. */
 export function realDropped(round: FramingRound): boolean {
   return round.framedConfidence !== null && round.framedConfidence < round.confidence;
