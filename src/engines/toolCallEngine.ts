@@ -313,6 +313,86 @@ export function applyAction(state: ToolCallState, action: ToolCallAction): ToolC
   }
 }
 
+/** The most worked examples any level here offers — `SCHEMA_EXAMPLES` holds two. */
+export const MAX_EXAMPLE_COUNT: 0 | 1 | 2 = 2;
+
+/**
+ * Example counts the retry-fix solution tries, in order.
+ *
+ * A search order, not an answer: the canvas decodes each for real and keeps
+ * the first whose output actually parses, so a noisier device simply lands on
+ * a different count. Most examples first because more examples measured
+ * monotonically better on this model in a real browser (1 of 6, then 3 of 6,
+ * then 6 of 6 valid across this chapter's first level); zero last because it
+ * is the state the level opens on and the one already known to fail.
+ */
+export function retryExampleCandidates(): (0 | 1 | 2)[] {
+  return [MAX_EXAMPLE_COUNT, 1, 0];
+}
+
+/**
+ * The worked solution's autofill.
+ *
+ * Nothing here is scored without a real generation behind it, so every mode
+ * takes its model output as an argument rather than producing one: the canvas
+ * runs the same decodes a player's clicks would and hands the text back. With
+ * no output supplied this only moves the levers — the example count, the tool
+ * order — which is exactly what a player would do before pressing run.
+ */
+export function solve(
+  state: ToolCallState,
+  options?: {
+    /** schema-reliability / retry-fix: the count the canvas actually ran at. */
+    exampleCount?: 0 | 1 | 2;
+    /** schema-reliability: one real generation per question. */
+    schemaResults?: SchemaTestResult[];
+    /** tool-select: the order used and the tool really extracted, per round. */
+    toolPicks?: ({ lastTool: 'calculator' | 'lookup'; pickedTool: string | null } | null)[];
+    /** retry-fix: the real generation that validated. */
+    retryText?: string;
+  }
+): ToolCallState {
+  switch (state.mode) {
+    case 'schema-reliability': {
+      let next = applyAction(state, {
+        type: 'SET_EXAMPLE_COUNT',
+        count: options?.exampleCount ?? MAX_EXAMPLE_COUNT,
+      });
+      if (options?.schemaResults) {
+        next = applyAction(next, { type: 'RUN_SCHEMA_TEST', results: options.schemaResults });
+      }
+      return next;
+    }
+
+    case 'tool-select': {
+      let next = state;
+      state.selectRounds.forEach((round, roundIndex) => {
+        const pick = options?.toolPicks?.[roundIndex];
+        next = applyAction(next, {
+          type: 'SET_TOOL_ORDER',
+          roundIndex,
+          lastTool: pick?.lastTool ?? round.expectedTool,
+        });
+        if (pick) {
+          next = applyAction(next, { type: 'TEST_TOOL_SELECT', roundIndex, pickedTool: pick.pickedTool });
+        }
+      });
+      return next;
+    }
+
+    case 'retry-fix': {
+      let next = applyAction(state, {
+        type: 'SET_EXAMPLE_COUNT',
+        count: options?.exampleCount ?? retryExampleCandidates()[0]!,
+      });
+      if (options?.retryText !== undefined) {
+        next = applyAction(next, { type: 'TEST_RETRY', text: options.retryText });
+      }
+      return next;
+    }
+  }
+}
+
 export function evaluate(state: ToolCallState): ScoreResult {
   switch (state.mode) {
     case 'schema-reliability': {

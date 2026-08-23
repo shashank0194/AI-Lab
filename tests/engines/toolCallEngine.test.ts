@@ -11,6 +11,9 @@ import {
   buildToolSelectPrompt,
   extractToolName,
   type ToolCallConfig,
+  solve,
+  retryExampleCandidates,
+  MAX_EXAMPLE_COUNT,
 } from '@/engines/toolCallEngine';
 import type { CausalLMDep } from '@/engines/deps';
 import type { EngineRules } from '@/types/game';
@@ -355,5 +358,114 @@ describe('toolCallEngine — SUBMIT', () => {
     let state = initState(config, retryRules, prepared);
     state = applyAction(state, { type: 'SUBMIT' });
     expect(state.status).toBe('complete');
+  });
+});
+
+describe('toolCallEngine — solve (the worked solution\'s autofill)', () => {
+  it('selects the most worked examples the level offers, and records the real run', async () => {
+    const config: ToolCallConfig = { mode: 'schema-reliability', maxTokens: 30, questions: ['Q1?', 'Q2?'] };
+    const state = initState(config, schemaRules, await prepare(config));
+
+    const levers = solve(state);
+    expect(levers.exampleCount).toBe(MAX_EXAMPLE_COUNT);
+    expect(levers.schemaResults).toHaveLength(0);
+    expect(evaluate(levers).value).toBe(0);
+
+    const solved = solve(state, {
+      exampleCount: MAX_EXAMPLE_COUNT,
+      schemaResults: [
+        { question: 'Q1?', text: '{"tool":"calculator","args":{"expression":"1+1"}}', valid: true },
+        { question: 'Q2?', text: '{"tool":"calculator","args":{"expression":"2+2"}}', valid: true },
+      ],
+    });
+    expect(solved.exampleCount).toBe(2);
+    expect(evaluate(solved).value).toBe(1);
+  });
+
+  it('puts each round\'s own tool last, and records whatever the model really picked', async () => {
+    const config: ToolCallConfig = {
+      mode: 'tool-select',
+      maxTokens: 20,
+      instructions: [
+        { text: 'What is 2 plus 2?', expectedTool: 'calculator' },
+        { text: 'How deep is the ocean?', expectedTool: 'lookup' },
+      ],
+    };
+    const state = initState(config, selectRules, await prepare(config));
+
+    const levers = solve(state);
+    expect(levers.selectRounds.map((r) => r.lastOrder)).toEqual(['calculator', 'lookup']);
+    expect(levers.selectRounds.every((r) => !r.tested)).toBe(true);
+
+    const solved = solve(state, {
+      toolPicks: [
+        { lastTool: 'calculator', pickedTool: 'calculator' },
+        { lastTool: 'lookup', pickedTool: 'lookup' },
+      ],
+    });
+    expect(solved.selectRounds.every((r) => r.tested)).toBe(true);
+    expect(evaluate(solved).value).toBe(1);
+  });
+
+  it('keeps a round the model got wrong honest rather than scoring it correct', async () => {
+    const config: ToolCallConfig = {
+      mode: 'tool-select',
+      maxTokens: 20,
+      instructions: [
+        { text: 'What is 2 plus 2?', expectedTool: 'calculator' },
+        { text: 'How deep is the ocean?', expectedTool: 'lookup' },
+      ],
+    };
+    const state = initState(config, selectRules, await prepare(config));
+    const solved = solve(state, {
+      toolPicks: [
+        { lastTool: 'calculator', pickedTool: 'calculator' },
+        // The search tried both orders and the model still said "calculator".
+        { lastTool: 'calculator', pickedTool: 'calculator' },
+      ],
+    });
+    expect(evaluate(solved).value).toBeCloseTo(0.5);
+  });
+
+  it('tries the most examples first and the known-broken zero-example prompt last', () => {
+    expect(retryExampleCandidates()[0]).toBe(MAX_EXAMPLE_COUNT);
+    expect(retryExampleCandidates()).toHaveLength(3);
+    expect(retryExampleCandidates().at(-1)).toBe(0);
+  });
+
+  it('submits the searched-out example count as a single attempt, scoring 3 stars', async () => {
+    const config: ToolCallConfig = { mode: 'retry-fix', maxTokens: 40, question: 'What is 9 times 6?' };
+    const state = initState(config, retryRules, await prepare(config));
+
+    const solved = solve(state, {
+      exampleCount: 1,
+      retryText: '{"tool": "calculator", "args": {"expression": "9 * 6"}}',
+    });
+    expect(solved.exampleCount).toBe(1);
+    expect(solved.retryAttempts).toBe(1);
+    expect(solved.retrySolvedAtAttempt).toBe(1);
+
+    const result = evaluate(solved);
+    expect(result.value).toBe(1);
+    expect(result.stars).toBe(3);
+    expect(result.passed).toBe(true);
+  });
+
+  it('spends no attempt when no real generation is supplied', async () => {
+    const config: ToolCallConfig = { mode: 'retry-fix', maxTokens: 40, question: 'What is 9 times 6?' };
+    const state = initState(config, retryRules, await prepare(config));
+    const solved = solve(state);
+    expect(solved.retryAttempts).toBe(0);
+    expect(solved.retrySolved).toBe(false);
+    expect(solved.exampleCount).toBe(MAX_EXAMPLE_COUNT);
+  });
+
+  it('records an attempt that really failed as a failure', async () => {
+    const config: ToolCallConfig = { mode: 'retry-fix', maxTokens: 40, question: 'What is 9 times 6?' };
+    const state = initState(config, retryRules, await prepare(config));
+    const solved = solve(state, { exampleCount: 0, retryText: '{"args": {"expression": "9 times 6"}}' });
+    expect(solved.retryAttempts).toBe(1);
+    expect(solved.retrySolved).toBe(false);
+    expect(evaluate(solved).passed).toBe(false);
   });
 });

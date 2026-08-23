@@ -50,9 +50,32 @@
       "xpReward": 40,
       "hints": [
         "The model was never told what a valid answer looks like — try showing it one first.",
-        "Real measured behaviour: with zero worked examples, the model never once closes the JSON correctly across all 6 questions — it invents extra keys, repeats itself, or just answers in prose instead. Each worked example you add measurably raises how often it actually validates, though not to a perfect 6 of 6.",
-        "Checked directly against the real model, at the same precision it actually runs at in the browser (not a higher-precision approximation): 0 examples → 0 of 6 valid; 1 example → 3 of 6 valid; 2 examples → 5 of 6 valid. Real, quantized small-model output is noisier than a clean 0%-to-100% story — more examples reliably helps, it just doesn't guarantee perfection."
-      ]
+        "Real measured behaviour: with zero worked examples only one of the six comes back as JSON the level can parse. The rest do the arithmetic in prose, or fall into a repeating loop. Each worked example you add measurably raises how often it actually validates.",
+        "Measured in a real browser, at the quantized precision the model actually runs at there: 0 examples → 1 of 6 valid; 1 example → 3 of 6; 2 examples → 6 of 6. More examples helps monotonically here, and two is enough to clear the three-star bar."
+      ],
+      "solution": {
+        "problem": "Six arithmetic questions, one lever, and a score that is simply how many of six real generations come back as JSON the level can actually parse. The lever is how many worked examples sit between the schema description and the question: none, one, or two. Nothing is simulated — each press runs six real greedy decodes and parses whatever text comes out.",
+        "steps": [
+          {
+            "title": "Know exactly what counts as valid",
+            "body": "The check pulls the first balanced {...} out of the model's output and requires two things: a string `tool` field, and an `args` object with a string `expression`. Extra keys are tolerated, the way a real tool router ignores fields it does not need. So nothing here fails on a technicality — a failure means the model genuinely did not produce a dispatchable call."
+          },
+          {
+            "title": "Look at what zero examples actually produces",
+            "body": "Measured in a real browser across all six questions: 1 of 6 valid. The five failures are not near-misses. Asked 'What is 47 plus 89?' it answers ' 47 + 89 = 54' — prose instead of JSON, and wrong arithmetic on top. Asked 'What is 12 times 8?' it falls into a loop: ' 12 times 8 = 8 times 12 = 8 times 12 = 8 ti'. Describing the schema in words does not make a 135M model follow the schema."
+          },
+          {
+            "title": "Add one example",
+            "body": "One worked example takes it to 3 of 6 — a threefold improvement from a single demonstration, and already enough to pass the level. Showing the shape once is worth more than describing it at length in the system text, because copying a demonstrated pattern is exactly what a next-token predictor is built to do. Half the questions still come back unparseable, though, so one example is not the answer here."
+          },
+          {
+            "title": "Add the second example",
+            "body": "Two examples reach 6 of 6 — a valid rate of 1.0, past the 0.75 three-star bar with room to spare. Two is also the most this level offers, and the effect is monotone: 1 of 6, then 3 of 6, then 6 of 6. Nothing here needed a cleverer prompt, just one more demonstration."
+          }
+        ],
+        "answer": "Choose 2 examples and run the six generations: 6 of 6 valid, a rate of 1.0, three stars. Autofill selects two examples and runs exactly the same six real decodes your own click would — the score is whatever the model actually produced on your device, not a stored number, so a slower or noisier device may land slightly differently.",
+        "takeaway": "Few-shot examples are the cheapest reliability lever there is: one demonstration tripled the valid rate here and two made it perfect on this run. But a rate measured on six questions is not a guarantee, which is why production tool-calling does not rely on prompting alone — it constrains decoding to the schema's grammar, or validates the output and retries, so a malformed call is caught rather than dispatched."
+      }
     },
     {
       "id": "7-3-l2",
@@ -85,9 +108,32 @@
       "xpReward": 45,
       "hints": [
         "The real model doesn't read each instruction as closely as you'd expect when picking a tool — try noticing which tool you listed and demonstrated last.",
-        "Checked directly, deliberately putting the wrong tool last on purpose: the model followed that ordering anyway, 6 real generations out of 6 — proof this really is about recency, not the instruction's actual meaning.",
-        "The reliable move: for each instruction, put whichever tool actually fits it last. This is not perfectly reliable at the real quantized precision the model runs at in your browser — checked directly, ordering the correct tool last reached the right pick on 4 of these 6 real instructions in one full run. Real, sometimes-noisy small-model behaviour, not a bug to route around."
-      ]
+        "Measured in a real browser, deliberately putting the wrong tool last on purpose: the model picked the tool it was shown last in all 6 real generations, regardless of what the instruction was actually asking for — proof this is about recency, not the instruction's meaning.",
+        "The reliable move: for each instruction, put whichever tool actually fits it last. Measured in a real browser, that reaches the right pick on 5 of these 6 instructions — accuracy 0.833. The exception is 'What is 6 times 11?', which the model routes to lookup even with the calculator listed and demonstrated last. Real, sometimes-noisy small-model behaviour, not a bug to route around."
+      ],
+      "solution": {
+        "problem": "Six instructions, three arithmetic and three factual, and each needs the right tool. The only thing you control is which of the two tools is listed and demonstrated last, immediately before the model answers. The score is how many of the six real picks match the tool the instruction actually calls for.",
+        "steps": [
+          {
+            "title": "See what the lever really changes",
+            "body": "Choosing a tool to go last does two things to the prompt: it moves that tool to the bottom of the tool list, and it adds one worked example using it. So 'last' here means last-mentioned and last-demonstrated — the most recent thing in the model's context before it starts writing."
+          },
+          {
+            "title": "Confirm that recency, not meaning, is driving the pick",
+            "body": "Deliberately put the wrong tool last and the model follows it. Measured in a real browser across all six instructions with the wrong tool demonstrated last, the pick matched the last-listed tool every single time — 6 of 6. It is not reading 'How deep is the Mariana Trench?' and reasoning about it; it is copying the most recent example it was shown."
+          },
+          {
+            "title": "Apply the rule everywhere",
+            "body": "So the strategy is simply: for each instruction, put the tool that actually fits it last. Measured across all six in a real browser, that reaches 5 of 6 — an accuracy of 0.833, which clears the 0.8 three-star bar."
+          },
+          {
+            "title": "Understand the one it still gets wrong",
+            "body": "The exception is 'What is 6 times 11?', which picks lookup even with the calculator listed and demonstrated last. Trying the other ordering on it does not rescue it either — it routes to lookup either way. One instruction in six where the lever simply does not take: worth seeing, because it is the difference between a rule that mostly works and a rule you can build on."
+          }
+        ],
+        "answer": "Put each instruction's own tool last — calculator for the three arithmetic ones, lookup for the three factual ones — and run all six. Measured in a real browser that is 5 of 6, accuracy 0.833, three stars. Autofill sets each round's tool order that way and runs the six real generations; whatever the model genuinely picks is what gets scored, including the one it gets wrong.",
+        "takeaway": "A small model's tool choice is dominated by prompt position rather than by the instruction's meaning — and the one instruction that ignores the ordering entirely shows that the position effect is not a rule you can rely on either. That is why production routers do not leave the decision to a raw completion: they use a classifier, a constrained grammar, or a much larger model, and they measure routing accuracy rather than assuming it."
+      }
     },
     {
       "id": "7-3-l3",
@@ -112,10 +158,33 @@
       ],
       "xpReward": 50,
       "hints": [
-        "This exact prompt, with zero examples, produces broken JSON from the real model — it drops the required \"tool\" field entirely and just guesses at the arguments.",
-        "One worked example, in the same shape you want back, is usually enough to fix it — verified directly against the real model, at the same precision it actually runs at in your browser.",
-        "Checked directly: at 0 examples the real decode is invalid every time (missing \"tool\", e.g. {\"args\": {\"expression\": \"9 times 6\"}}); at 1 example it's valid on the very first real attempt, and stays valid at 2."
-      ]
+        "This exact prompt, with zero examples, does not produce a tool call at all from the real model — it answers with a numbered list. Show it what a call looks like.",
+        "One worked example gets it most of the way and still fails: measured in a real browser, the output becomes well-formed JSON with the right arithmetic — but the required \"tool\" field is missing, so it is still not a dispatchable call. Read what the schema actually requires, then decide whether one demonstration is enough.",
+        "Measured in a real browser: 0 examples answers with a numbered list ('\"1\" \"2\" \"3\"…') and is invalid; 1 example returns {\"args\": {\"expression\": \"9 * 6\"}} — right expression, no \"tool\" field, still invalid; 2 examples returns {\"tool\": \"calculator\", \"args\": {\"expression\": \"9 * 6\"}} and validates. Set it to 2 before your first test and the level is solved on attempt 1."
+      ],
+      "solution": {
+        "problem": "One question — 'What is 9 times 6?' — that the real model gets wrong when asked cold. You add worked examples and re-test until a real generation actually parses, and the score is how few attempts that takes. Three stars means the very first attempt validates, so the interesting decision happens before you press anything.",
+        "steps": [
+          {
+            "title": "Look at what is actually broken",
+            "body": "At zero examples the model does not attempt a tool call at all — measured in a real browser, it answers with a numbered list: '\"1\" \"2\" \"3\" \"4\" \"5\"…'. The schema was described in the system text in plain words, and the model ignored it completely. This is the state the board opens on."
+          },
+          {
+            "title": "Know why an example fixes it",
+            "body": "The schema was described in prose in the system text, and the model did not follow it. A worked example does not describe the shape, it demonstrates it — and demonstrating is what a next-token predictor can copy. This is the same effect the first level of this chapter measures across six questions; here it is one question and the attempt count is what is scored."
+          },
+          {
+            "title": "Measure one example — and notice it is not enough",
+            "body": "With a single worked example the real output becomes '{\"args\": {\"expression\": \"9 * 6\"}}'. That is a big improvement: it is well-formed JSON, and the expression has been converted from English into arithmetic a calculator can evaluate. It is still invalid. The `tool` field is missing, so a router has nothing to dispatch on — a schema error, not a parse error, and exactly the kind of failure that slips past a naive 'did it return JSON?' check. Two examples is what actually produces '{\"tool\": \"calculator\", \"args\": {\"expression\": \"9 * 6\"}}'."
+          },
+          {
+            "title": "Do not spend attempts learning what is already measured",
+            "body": "Three stars needs the first attempt to validate, and two of the three settings are measured to fail. Working up from zero costs three attempts and lands on one star. Go straight to two examples and test once."
+          }
+        ],
+        "answer": "Set the example count to 2, then test once: the model returns {\"tool\": \"calculator\", \"args\": {\"expression\": \"9 * 6\"}}, and the level is solved on attempt 1 — three stars. Autofill does not assume that: it decodes each candidate example count for real, most examples first, and submits only the one whose output actually parses, so the attempt it records is a run that genuinely worked on your device.",
+        "takeaway": "Validate, then retry with a repaired prompt: that loop is what real tool-calling systems are built on, because even a good model fails the schema sometimes. Note what the one-example case looks like — valid JSON, correct arithmetic, missing a required field. A check that only asks 'did it parse?' would have dispatched it."
+      }
     }
   ]
 }

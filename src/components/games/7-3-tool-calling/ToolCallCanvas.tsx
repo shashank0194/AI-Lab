@@ -23,6 +23,9 @@ import {
   parseToolCall,
   buildToolSelectPrompt,
   extractToolName,
+  retryExampleCandidates,
+  solve,
+  MAX_EXAMPLE_COUNT,
   type ToolCallAction,
   type ToolCallConfig,
   type ToolCallState,
@@ -31,6 +34,7 @@ import { tinyCausalLM, preloadCausalLM, CAUSAL_LM_MODEL_ID } from '@/models/tiny
 import { ModelGate } from '@/components/ui/ModelGate';
 import { Button, Panel, Readout, Tag, cx } from '@/components/ui';
 import { useRetrySignal } from '../useRetrySignal';
+import { useSolutionFill } from '../useSolutionFill';
 import type { GameComponentProps } from '../registry';
 import type { EngineRules } from '@/types/game';
 
@@ -62,7 +66,9 @@ export function ToolCallCanvas({ game, level, onScore, onSubmit }: GameComponent
       loadFailureMessage={game.modelRequirement.loadFailureMessage}
       load={load}
     >
-      {state && <Board state={state} dispatch={dispatch} onScore={onScore} onSubmit={onSubmit} />}
+      {state && (
+        <Board state={state} dispatch={dispatch} setState={setState} onScore={onScore} onSubmit={onSubmit} />
+      )}
     </ModelGate>
   );
 }
@@ -70,11 +76,14 @@ export function ToolCallCanvas({ game, level, onScore, onSubmit }: GameComponent
 function Board({
   state,
   dispatch,
+  setState,
   onScore,
   onSubmit,
 }: {
   state: ToolCallState;
   dispatch: (action: ToolCallAction) => void;
+  /** Replaces the whole engine state, for the solution's autofill. */
+  setState: (next: ToolCallState) => void;
   onScore: GameComponentProps['onScore'];
   onSubmit: GameComponentProps['onSubmit'];
 }) {
@@ -88,6 +97,76 @@ function Board({
     setRevealed(false);
   }, [dispatch]);
   useRetrySignal(resetRun);
+
+  // The solution's autofill. Every mode here is scored on real generations, so
+  // the fill runs the same decodes the player's own clicks would and hands the
+  // text to `solve()`. Levels 2 and 3 also *search*: level 2 falls back to the
+  // other tool order on any round the model gets wrong, and level 3 decodes
+  // each example count until one really parses — submitting only that one, so
+  // its recorded attempt count is a run that worked rather than the search.
+  const [filling, setFilling] = useState(false);
+
+  useSolutionFill(
+    useCallback(() => {
+      void (async () => {
+        setFilling(true);
+        await yieldToPaint();
+        try {
+          if (state.mode === 'schema-reliability') {
+            const questions = state.config.questions ?? [];
+            const schemaResults = [];
+            for (const question of questions) {
+              const prompt = buildSchemaPrompt(question, MAX_EXAMPLE_COUNT);
+              const text = await greedyDecode(tinyCausalLM, prompt, state.config.maxTokens);
+              schemaResults.push({ question, text, valid: parseToolCall(text).valid });
+            }
+            const solved = solve(state, { exampleCount: MAX_EXAMPLE_COUNT, schemaResults });
+            setState(solved);
+            setRevealed(true);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          if (state.mode === 'tool-select') {
+            // One decode per round, with that round's own tool placed last —
+            // the level's actual lesson. Trying the other order as a fallback
+            // was measured and changes nothing on this model (the two rounds
+            // it gets wrong pick `lookup` under either ordering), so it would
+            // only double the wait for a result that is already the best
+            // available; whatever the model really picks is what gets scored.
+            const toolPicks: ({ lastTool: 'calculator' | 'lookup'; pickedTool: string | null } | null)[] = [];
+            for (const round of state.selectRounds) {
+              const prompt = buildToolSelectPrompt(round.text, round.expectedTool);
+              const text = await greedyDecode(tinyCausalLM, prompt, state.config.maxTokens);
+              toolPicks.push({ lastTool: round.expectedTool, pickedTool: extractToolName(text) });
+            }
+            const solved = solve(state, { toolPicks });
+            setState(solved);
+            setRevealed(true);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          const question = state.config.question ?? '';
+          for (const exampleCount of retryExampleCandidates()) {
+            const prompt = buildSchemaPrompt(question, exampleCount);
+            const text = await greedyDecode(tinyCausalLM, prompt, state.config.maxTokens);
+            if (!parseToolCall(text).valid) continue;
+            const solved = solve(state, { exampleCount, retryText: text });
+            setState(solved);
+            onSubmit(evaluate(solved));
+            return;
+          }
+
+          // Nothing parsed on this device. Leave the most promising example
+          // count selected without spending an attempt on a run that failed.
+          setState(solve(state));
+        } finally {
+          setFilling(false);
+        }
+      })();
+    }, [state, setState, onSubmit])
+  );
 
   const submit = () => {
     onSubmit(evaluate(state));
@@ -112,7 +191,8 @@ function Board({
           <RotateCcw size={13} strokeWidth={2} />
           Reset
         </Button>
-        {!revealed && blocked && <span className="label">{submitHint(state)}</span>}
+        {filling && <Tag tone="accent">running the solution&rsquo;s generations…</Tag>}
+        {!filling && !revealed && blocked && <span className="label">{submitHint(state)}</span>}
         {revealed && <Tag tone="accent">answers revealed</Tag>}
         <Button
           variant="primary"
