@@ -59,11 +59,22 @@ crawler this project cares about actually weighs the tag).
 ## What "improve SEO" should actually mean here, if asked again
 
 In order of actual leverage, highest first:
-1. **On-page content matching search intent** — already true: `game.concept.shortExplanation`
-   renders unconditionally in `ChapterShell`'s concept panel (not gated behind a client-only mount
-   effect), so it's present in the initial server-rendered HTML a crawler sees. Confirm this stays
-   true if `ConceptPanel` is ever refactored — a `mounted`-gated render would silently remove the
-   one thing giving a chapter page real indexable text about its own topic.
+1. **On-page content matching search intent** — **currently broken, and it is the biggest lever
+   here.** This section used to claim `game.concept.shortExplanation` reaches the server-rendered
+   HTML because `ConceptPanel` renders it unconditionally. It does not. `ConceptPanel` is fine; the
+   gate is one level *above* it, at `ChapterPageClient.tsx`'s `if (!hydrated) return null` — the
+   progress store hydrates from IndexedDB, which only exists in the browser, so on the server that
+   early return discards the entire subtree before `ChapterShell` is ever reached. Measured against
+   a real `next build` + `next start` (Aug 2026): a chapter page serves **71 bytes** of visible
+   text — the AppShell header and the `<title>`, nothing else — and `shortExplanation` appears
+   nowhere in the HTML. The old warning here ("a `mounted`-gated render would silently remove the
+   one thing giving a chapter page real indexable text") describes exactly what already happened.
+
+   Note the diagnosis that is easy to get wrong: `'use client'` is **not** the cause. Client
+   components do server-render in the App Router. The cause is specifically the hydration-gated
+   early return, so the fix is to narrow that gate, not to convert the tree to server components.
+   Never re-assert that chapter prose is server-rendered without re-measuring it —
+   `curl -s <url> | grep -c '<some sentence from the chapter JSON>'` settles it in one command.
 2. **Structured data** (`LearningResource` JSON-LD) — done, see above.
 3. **Correct, unique per-page metadata** (`title`/`description`/canonical/`openGraph`/`twitter`) —
    done, see the merge trap above.
